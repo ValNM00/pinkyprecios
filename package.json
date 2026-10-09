@@ -1,0 +1,13 @@
+{
+  "name": "pinkyprecios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Comparador de precios reales de tiendas de Costa Rica",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node scripts/servidor.mjs",
+    "probar": "node scripts/probar-tiendas.mjs",
+    "test": "node --test tests/basico.test.mjs"
+  }
+}
