@@ -155,7 +155,11 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
   const vistos = new Set();
   const urls = [];
   const notas = [];
-  let leidos = 0;
+  let leidos = 0, otroPais = 0;
+  // Tiendas con varios países (La Curacao /costarica, PriceSmart /es-cr): solo se guardan páginas de Costa Rica
+  const ruta = new URL(t.url).pathname.replace(/\/$/, '');
+  const prefijo = ruta ? origen + ruta + '/' : '';
+  const segmento = ruta.split('/').filter(Boolean).pop() || '';
   while (cola.length && urls.length < limite) {
     const resta = tiempo - (Date.now() - inicio);
     if (resta < 1500) { notas.push(`se acabó el tiempo con ${cola.length} mapas pendientes`); break; }
@@ -170,13 +174,16 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
     leidos++;
     const locs = [...xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?([^<\]]+?)(?:\]\]>)?\s*<\/loc>/g)].map((m) => m[1].trim().replace(/&amp;/g, '&'));
     if (/<sitemapindex/i.test(xml)) {
-      const hijos = locs.filter((l) => /product|producto|catalog/i.test(l));
-      cola.push(...(hijos.length ? hijos : locs).slice(0, 20));
+      let hijos = locs;
+      if (segmento) { const delPais = hijos.filter((l) => l.toLowerCase().includes(segmento.toLowerCase())); if (delPais.length) hijos = delPais; }
+      const deProductos = hijos.filter((l) => /product|producto|catalog/i.test(l));
+      cola.push(...(deProductos.length ? deProductos : hijos).slice(0, 25));
       continue;
     }
     if (!locs.length) notas.push(`${sm.replace(/^https?:\/\/[^/]+/, '')}: no parece un mapa del sitio`);
     for (const u of locs) {
       if (urls.length >= limite) break;
+      if (prefijo && !u.startsWith(prefijo)) { otroPais++; continue; }
       if (vistos.has(u) || NO_PRODUCTO.test(u) || u.includes('?')) continue;
       const texto = textoDeUrl(u);
       if (texto.split(' ').length < 2) continue;
@@ -185,6 +192,7 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
     }
   }
   notas.unshift(`${leidos} ${leidos === 1 ? 'mapa leído' : 'mapas leídos'}`);
+  if (otroPais) notas.push(`${otroPais} páginas de otros países descartadas`);
   return { urls, notas };
 }
 
@@ -234,6 +242,7 @@ export function ofertaDePagina(t, url, html, tc) {
     imagen = imagen || meta(html, 'og:image') || '';
   }
   if (!precio || !nombre) return null;
+  if (!['CRC', 'USD', '₡', 'COLONES'].includes(moneda)) return null; // precio de otro país
   if (moneda !== 'USD') moneda = 'CRC';
   const precioCol = aColones(precio, moneda, tc);
   return {

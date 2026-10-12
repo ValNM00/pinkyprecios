@@ -352,6 +352,8 @@ export async function indexar({ tiempo = 20000, tienda = null } = {}) {
     }
     const { urls, notas } = await urlsDeSitemap(t, { tiempo: Math.max(4000, tiempo - (Date.now() - ini) - 2500), limite: 15000 });
     const ahora = new Date().toISOString();
+    // Índice nuevo: se borran las páginas viejas de esta tienda (por ejemplo, de otros países)
+    if (urls.length) await rest(`paginas?tienda_id=eq.${t.id}`, { metodo: 'DELETE', prefer: 'return=minimal' });
     await guardarPaginas(urls.map((u) => ({ id: `${t.id}:${hash(u.url)}`, tienda_id: t.id, url: u.url, texto: u.texto, actualizado: ahora })));
     const detalle = (urls.length ? `${urls.length} páginas del mapa del sitio. ` : 'No se encontraron páginas de producto. ') + notas.join(' · ');
     await guardarTienda({
