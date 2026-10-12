@@ -55,9 +55,11 @@ export function eanValido(e) {
 }
 
 // Código de modelo: palabra con letras y números, de 5+ caracteres, que no sea una medida (128GB, 55pulg…)
+// Código de modelo: palabra con letras y números, de 5+ caracteres, que no sea una medida (128GB, 55pulg…).
+// Se prefiere el que aparece en el nombre; el SKU o la referencia se usan solo si el nombre no trae ninguno.
 export function extraerModelo(...fuentes) {
-  const candidatos = [];
   for (const f of fuentes) {
+    const candidatos = [];
     for (const crudo of String(f || '').split(/[\s/,()|+]+/)) {
       const t = crudo.replace(/^[-.]+|[-.]+$/g, '');
       const limpio = t.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -68,9 +70,17 @@ export function extraerModelo(...fuentes) {
       if (/^(i[3579]|ryzen|core|gen|rtx|gtx|ddr|usb|hdmi|wifi|bluetooth)/.test(limpio) && limpio.length < 9) continue;
       candidatos.push(limpio);
     }
+    if (candidatos.length) return candidatos.sort((a, b) => b.length - a.length)[0];
   }
-  candidatos.sort((a, b) => b.length - a.length);
-  return candidatos[0] || '';
+  return '';
+}
+
+// Mismo modelo aunque una tienda agregue el sufijo de región (UN55DU7000 = UN55DU7000PXPA)
+export function mismoModelo(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [corto, largo] = a.length <= b.length ? [a, b] : [b, a];
+  return corto.length >= 7 && largo.startsWith(corto) && largo.length - corto.length <= 6;
 }
 
 const numeros = (s) => (normalizar(s).match(/\d+(?:\s?\d+)?/g) || []).join(',');
@@ -105,7 +115,10 @@ export function agrupar(ofertas) {
     }
   });
   for (let i = 0; i < ofertas.length; i++) for (let j = i + 1; j < ofertas.length; j++) {
-    if (raiz(i) !== raiz(j) && ofertas[i].tienda !== ofertas[j].tienda && parecidos(ofertas[i], ofertas[j])) unir(i, j);
+    if (raiz(i) === raiz(j)) continue;
+    const a = ofertas[i], b = ofertas[j];
+    const marcasOk = !a.marcaNorm || !b.marcaNorm || a.marcaNorm === b.marcaNorm;
+    if ((marcasOk && a.modelo !== b.modelo && mismoModelo(a.modelo, b.modelo)) || (a.tienda !== b.tienda && parecidos(a, b))) unir(i, j);
   }
   const grupos = new Map();
   ofertas.forEach((o, i) => { const r = raiz(i); if (!grupos.has(r)) grupos.set(r, []); grupos.get(r).push(o); });

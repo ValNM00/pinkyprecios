@@ -3,7 +3,7 @@ import { TIENDAS } from './tiendas.mjs';
 import { enLotes, conLimite } from './http.mjs';
 import { relevancia, terminos, agrupar, armarGrupo, normalizar, SINONIMOS } from './texto.mjs';
 import {
-  tipoCambio, buscarVtex, refrescarVtex, paginaShopify, filasShopify, monedaShopify, refrescarShopify,
+  tipoCambio, buscarVtex, refrescarVtex, buscarWoo, refrescarWoo, paginaShopify, filasShopify, monedaShopify, refrescarShopify,
   filaAOferta, urlsDeSitemap, leerPagina, detectar, hash
 } from './adaptadores.mjs';
 import { hayDB, rest, lista, guardarOfertas, guardarPaginas, tiendasDB, guardarTienda, filaAOfertaDB, hoyCR } from './db.mjs';
@@ -32,7 +32,7 @@ export async function tiendasEfectivas(forzar = false) {
   return lista;
 }
 
-const resumenTienda = (t) => ({ id: t.id, nombre: t.nombre, url: t.url, plataforma: t.plataformaReal, estado: t.estado, detalle: t.detalle, revisado: t.revisado, indexados: t.indexados });
+const resumenTienda = (t) => ({ id: t.id, nombre: t.nombre, url: t.url, rubro: t.rubro || '', plataforma: t.plataformaReal, estado: t.estado, detalle: t.detalle, revisado: t.revisado, indexados: t.indexados });
 
 // ---------------- Búsqueda en vivo ----------------
 function umbral(q) { const n = terminos(q).length; return n <= 3 ? 1 : 0.75; }
@@ -78,6 +78,8 @@ export async function buscar(q, alTerminar = (p) => p) {
       const tt = { ...t, moneda: t.monedaReal };
       if (t.plataformaReal === 'vtex') {
         ofs = await conLimite(buscarVtex(tt, q, tc), 8000);
+      } else if (t.plataformaReal === 'woocommerce') {
+        ofs = await conLimite(buscarWoo(tt, q, tc), 8000);
       } else if (t.plataformaReal === 'shopify' || t.plataformaReal === 'sitemap') {
         if (!hayDB()) { estados[t.id] = { estado: 'pendiente', detalle: 'Necesita la base de datos para guardar su catálogo' }; return; }
         if (!t.indexados && !t.indexadoEn && !t.cursor) { estados[t.id] = { estado: 'pendiente', detalle: 'Su catálogo todavía no se ha indexado' }; return; }
@@ -274,6 +276,7 @@ export async function actualizar({ tiempo = 22000, limite = 60 } = {}) {
       let r = null;
       if (t.plataformaReal === 'vtex') r = await refrescarVtex(tt, o.sku, tc);
       else if (t.plataformaReal === 'shopify') r = await refrescarShopify(tt, o, tc);
+      else if (t.plataformaReal === 'woocommerce') r = await refrescarWoo(tt, o, tc);
       else r = await leerPagina(tt, o.url, tc);
       nuevas.push(r ? { ...o, ...r, id: o.id } : { ...o, disponible: false });
     } catch (e) {
@@ -332,7 +335,9 @@ export async function indexar({ tiempo = 20000, tienda = null } = {}) {
   if (tienda && !elegida) return { error: `No existe la tienda "${tienda}"` };
   const sinDetectar = elegida
     ? (elegida.plataforma === 'auto' && ['auto', 'ninguna'].includes(elegida.plataformaReal) ? elegida : null)
-    : tiendas.find((t) => t.plataforma === 'auto' && t.plataformaReal === 'auto');
+    : tiendas.find((t) => t.plataforma === 'auto' && (t.plataformaReal === 'auto'
+        // las que no funcionaban se vuelven a probar cada 3 días, por si la tienda cambió
+        || (t.plataformaReal === 'ninguna' && (!t.revisado || Date.now() - new Date(t.revisado).getTime() > 72 * 3600e3))));
   if (sinDetectar) {
     const d = await detectar(sinDetectar);
     await guardarTienda({ ...base(sinDetectar), plataforma_detectada: d.plataforma, estado: d.plataforma === 'ninguna' ? 'no_disponible' : 'pendiente', detalle: d.detalle });
@@ -397,11 +402,15 @@ export async function diagnostico() {
     let r;
     try {
       let plataforma = t.plataformaReal, detalleDet = '';
-      if (t.plataforma === 'auto') { const d = await conLimite(detectar(t), 8000); plataforma = d.plataforma; detalleDet = d.detalle; }
+      // Solo se detectan las que aún no tienen plataforma (o las que antes no funcionaron)
+      if (t.plataforma === 'auto' && ['auto', 'ninguna'].includes(t.plataformaReal)) { const d = await conLimite(detectar(t), 7500); plataforma = d.plataforma; detalleDet = d.detalle; }
       if (plataforma === 'vtex') {
-        const ofs = await conLimite(buscarVtex({ ...t, moneda: t.monedaReal }, 'televisor', tc, 5), 8000);
+        const ofs = await conLimite(buscarVtex({ ...t, moneda: t.monedaReal }, t.rubro === 'Supermercado' ? 'arroz' : t.rubro?.startsWith('Ferre') ? 'taladro' : 'televisor', tc, 5), 7500);
         const ej = ofs[0];
         r = { plataforma, estado: ofs.length ? 'ok' : 'sin_resultados', detalle: ej ? `Búsqueda en vivo OK. Ejemplo: ${ej.nombre} a ₡${ej.precio.toLocaleString('es-CR')}` : 'La API respondió pero sin productos' };
+      } else if (plataforma === 'woocommerce') {
+        const ofs = await conLimite(buscarWoo({ ...t, moneda: t.monedaReal }, 'a', tc, 3), 8000);
+        r = { plataforma, estado: ofs.length ? 'ok' : 'sin_resultados', detalle: ofs[0] ? `Búsqueda en vivo OK. Ejemplo: ${ofs[0].nombre} a ₡${ofs[0].precio.toLocaleString('es-CR')}` : 'La tienda respondió sin productos' };
       } else if (plataforma === 'shopify') {
         const prods = await conLimite(paginaShopify(t, 1), 8000);
         r = { plataforma, estado: prods.length ? 'ok' : 'sin_resultados', detalle: prods.length ? `Catálogo público OK (${t.indexados} productos indexados)` : 'Catálogo vacío' };

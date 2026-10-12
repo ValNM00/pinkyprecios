@@ -260,22 +260,60 @@ export async function leerPagina(t, url, tc) {
   return ofertaDePagina(t, url, html, tc);
 }
 
+// ---------------- WooCommerce (Store API pública: /wp-json/wc/store/v1/products) ----------------
+const htmlATexto = (s) => String(s || '').replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&#8211;|&ndash;/g, '-').replace(/&#8243;|&quot;/g, '"').replace(/&#\d+;/g, ' ').replace(/\s+/g, ' ').trim();
+
+export function ofertaWoo(t, p, tc) {
+  const pr = p.prices || {};
+  const div = Math.pow(10, Number(pr.currency_minor_unit ?? 0));
+  const monto = Number(pr.price) / div;
+  if (!monto) return null;
+  const moneda = String(pr.currency_code || 'CRC').toUpperCase();
+  if (!['CRC', 'USD'].includes(moneda)) return null;
+  const regular = Number(pr.regular_price) / div;
+  const nombre = htmlATexto(p.name);
+  const marca = (p.brands && p.brands[0] && p.brands[0].name) || (p.attributes || []).find((a) => /marca|brand/i.test(a.name))?.terms?.[0]?.name || '';
+  return {
+    id: `${t.id}:${p.id}`, tienda: t.id, sku: String(p.id), ref: String(p.id),
+    nombre, marca: htmlATexto(marca), categoria: htmlATexto(p.categories?.[0]?.name || ''),
+    modelo: extraerModelo(nombre, sinLargos(p.sku)), ean: '',
+    url: p.permalink, imagen: p.images?.[0]?.src || p.images?.[0]?.thumbnail || '', vendedor: '',
+    precio: aColones(monto, moneda, tc), antes: regular > monto * 1.01 ? aColones(regular, moneda, tc) : null,
+    precioOriginal: monto, moneda, disponible: p.is_in_stock !== false && p.is_purchasable !== false, cuotas: null
+  };
+}
+
+export async function buscarWoo(t, q, tc, limite = 30) {
+  const d = await pedir(`${t.url}/wp-json/wc/store/v1/products?search=${encodeURIComponent(q)}&per_page=${limite}`, { timeout: 7000 });
+  if (!Array.isArray(d)) throw new Error('Respuesta inesperada de WooCommerce');
+  return d.map((p) => ofertaWoo(t, p, tc)).filter(Boolean);
+}
+
+export async function refrescarWoo(t, oferta, tc) {
+  const p = await pedir(`${t.url}/wp-json/wc/store/v1/products/${encodeURIComponent(oferta.sku)}`, { timeout: 7000 });
+  return ofertaWoo(t, p, tc);
+}
+
 // ---------------- Detección automática de plataforma ----------------
 export async function detectar(t) {
   const notas = [];
   try {
-    const d = await pedir(`${t.url}/api/catalog_system/pub/products/search?_from=0&_to=0`, { timeout: 7000 });
+    const d = await pedir(`${t.url}/api/catalog_system/pub/products/search?_from=0&_to=0`, { timeout: 3500 });
     if (Array.isArray(d)) return { plataforma: 'vtex', detalle: 'API de catálogo VTEX disponible' };
   } catch (e) { notas.push(e.bloqueado ? 'VTEX: bloqueado por robots.txt' : 'VTEX: no'); }
   try {
-    const d = await pedir(`${t.url}/products.json?limit=1`, { timeout: 7000 });
+    const d = await pedir(`${t.url}/products.json?limit=1`, { timeout: 3500 });
     if (d && Array.isArray(d.products) && d.products.length) return { plataforma: 'shopify', detalle: 'Catálogo público de Shopify disponible' };
   } catch (e) { notas.push(e.bloqueado ? 'Shopify: bloqueado por robots.txt' : 'Shopify: no'); }
+  try {
+    const d = await pedir(`${t.url}/wp-json/wc/store/v1/products?per_page=1`, { timeout: 3500 });
+    if (Array.isArray(d) && d.length && d[0].prices) return { plataforma: 'woocommerce', detalle: 'Catálogo público de WooCommerce disponible' };
+  } catch (e) { notas.push(e.bloqueado ? 'WooCommerce: bloqueado por robots.txt' : 'WooCommerce: no'); }
   try {
     const robots = await robotsDe(new URL(t.url).origin);
     if (robots.caido) return { plataforma: 'ninguna', detalle: 'El sitio no respondió' };
     if (robots.sitemaps.length) return { plataforma: 'sitemap', detalle: 'Se usará el mapa del sitio' };
-    await pedir(new URL(t.url).origin + '/sitemap.xml', { tipo: 'bytes', timeout: 7000 });
+    await pedir(new URL(t.url).origin + '/sitemap.xml', { tipo: 'bytes', timeout: 3500 });
     return { plataforma: 'sitemap', detalle: 'Se usará el mapa del sitio' };
   } catch (e) { notas.push(e.bloqueado ? 'Mapa del sitio: bloqueado por robots.txt' : 'Mapa del sitio: no encontrado'); }
   return { plataforma: 'ninguna', detalle: notas.join(' · ') };
