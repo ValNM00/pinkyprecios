@@ -6,7 +6,9 @@ export const hayDB = () => Boolean(base() && clave());
 
 export async function rest(ruta, { metodo = 'GET', cuerpo, prefer, contar = false } = {}) {
   if (!hayDB()) throw new Error('Supabase no está configurado');
-  const headers = { apikey: clave(), Authorization: 'Bearer ' + clave(), 'Content-Type': 'application/json' };
+  // Funciona con la clave nueva (sb_secret_…) y con la antigua service_role (un JWT que empieza con eyJ)
+  const headers = { apikey: clave(), 'Content-Type': 'application/json' };
+  if (clave().startsWith('eyJ')) headers.Authorization = 'Bearer ' + clave();
   if (prefer || contar) headers.Prefer = [prefer, contar && 'count=exact'].filter(Boolean).join(',');
   const r = await fetch(`${base()}/rest/v1/${ruta}`, { method: metodo, headers, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
   if (!r.ok) throw new Error(`Supabase ${r.status}: ${(await r.text()).slice(0, 300)}`);
@@ -47,6 +49,8 @@ export async function guardarOfertas(ofertas) {
 
 export async function guardarPaginas(filas) {
   if (!hayDB() || !filas.length) return;
+  // Algunos mapas del sitio repiten la misma página: se deja una sola por id
+  filas = [...new Map(filas.map((f) => [f.id, f])).values()];
   for (let i = 0; i < filas.length; i += 800) {
     await rest('paginas?on_conflict=id', { metodo: 'POST', cuerpo: filas.slice(i, i + 800), prefer: 'resolution=merge-duplicates,return=minimal' });
   }
