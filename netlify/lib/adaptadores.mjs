@@ -158,8 +158,8 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
   let leidos = 0, otroPais = 0;
   // Tiendas con varios países (La Curacao /costarica, PriceSmart /es-cr): solo se guardan páginas de Costa Rica
   const ruta = new URL(t.url).pathname.replace(/\/$/, '');
-  const prefijo = ruta ? origen + ruta + '/' : '';
   const segmento = ruta.split('/').filter(Boolean).pop() || '';
+  const delPais = (u) => { try { return new URL(u).pathname.toLowerCase().startsWith(ruta.toLowerCase() + '/'); } catch (e) { return false; } };
   while (cola.length && urls.length < limite) {
     const resta = tiempo - (Date.now() - inicio);
     if (resta < 1500) { notas.push(`se acabó el tiempo con ${cola.length} mapas pendientes`); break; }
@@ -181,9 +181,11 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
       continue;
     }
     if (!locs.length) notas.push(`${sm.replace(/^https?:\/\/[^/]+/, '')}: no parece un mapa del sitio`);
+    // Si el propio mapa es del país (ej. .../costarica/sitemap.xml), todas sus páginas cuentan como de Costa Rica
+    const mapaDelPais = segmento && sm.toLowerCase().includes(segmento.toLowerCase());
     for (const u of locs) {
       if (urls.length >= limite) break;
-      if (prefijo && !u.startsWith(prefijo)) { otroPais++; continue; }
+      if (ruta && !mapaDelPais && !delPais(u)) { otroPais++; continue; }
       if (vistos.has(u) || NO_PRODUCTO.test(u) || u.includes('?')) continue;
       const texto = textoDeUrl(u);
       if (texto.split(' ').length < 2) continue;

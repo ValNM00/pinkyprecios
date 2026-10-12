@@ -49,6 +49,13 @@ async function buscarEnIndice(tiendaId, q, limite) {
 
 const cacheBusquedas = new Map();
 
+// Fila de "paginas" con el precio recién leído (memoria de 24 horas para tiendas lentas)
+const filaDePagina = (f, o) => ({
+  id: f.id, tienda_id: f.tienda_id, url: f.url, texto: f.texto, nombre: o.nombre, marca: o.marca || null, sku: o.sku || null, ref: o.ref || f.url,
+  ean: o.ean || null, modelo: o.modelo || null, imagen: o.imagen || null, categoria: o.categoria || null, precio: o.precio, antes: o.antes || null,
+  precio_original: o.precioOriginal ?? null, moneda: o.moneda || 'CRC', disponible: o.disponible !== false, actualizado: new Date().toISOString()
+});
+
 export async function buscar(q, alTerminar = (p) => p) {
   q = String(q || '').trim().slice(0, 80);
   if (normalizar(q).length < 2) return { error: 'Escribí al menos 2 letras' };
@@ -61,6 +68,7 @@ export async function buscar(q, alTerminar = (p) => p) {
   const tiendas = await tiendasEfectivas();
   const estados = {};
   const encontradas = [];
+  const paginasLeidas = [];
 
   const tareas = tiendas.map(async (t) => {
     const ini = Date.now();
@@ -73,9 +81,19 @@ export async function buscar(q, alTerminar = (p) => p) {
       } else if (t.plataformaReal === 'shopify' || t.plataformaReal === 'sitemap') {
         if (!hayDB()) { estados[t.id] = { estado: 'pendiente', detalle: 'Necesita la base de datos para guardar su catálogo' }; return; }
         if (!t.indexados && !t.indexadoEn && !t.cursor) { estados[t.id] = { estado: 'pendiente', detalle: 'Su catálogo todavía no se ha indexado' }; return; }
-        const filas = await buscarEnIndice(t.id, q, t.plataformaReal === 'sitemap' ? 6 : 40);
+        const filas = await buscarEnIndice(t.id, q, t.plataformaReal === 'sitemap' ? 8 : 40);
         if (t.plataformaReal === 'shopify') ofs = filas.map(filaAOferta);
-        else ofs = (await enLotes(filas, 3, (f) => conLimite(leerPagina(tt, f.url, tc), 6500))).filter((o) => o && !o.error);
+        else {
+          // Precios leídos en las últimas 24 horas se usan directo; el resto se lee de la página (máximo 6)
+          const fresca = (f) => f.precio && f.nombre && Date.now() - new Date(f.actualizado).getTime() < 24 * 3600e3;
+          // mismo id que usa leerPagina, para no duplicar el historial
+          const guardadas = filas.filter(fresca).map((f) => ({ ...filaAOferta(f), id: `${t.id}:${f.sku ? normalizar(f.sku).replace(/ /g, '') : hash(f.url)}` }));
+          const porLeer = filas.filter((f) => !fresca(f)).slice(0, 6);
+          const leidas = (await enLotes(porLeer, 3, (f) => conLimite(leerPagina(tt, f.url, tc), 6000))).map((o, i) => ({ o, f: porLeer[i] }));
+          const nuevas = leidas.filter((x) => x.o && !x.o.error);
+          paginasLeidas.push(...nuevas.map(({ o, f }) => filaDePagina(f, o)));
+          ofs = [...guardadas, ...nuevas.map((x) => x.o)];
+        }
       } else {
         estados[t.id] = t.plataformaReal === 'auto'
           ? { estado: 'pendiente', detalle: 'Todavía no se detecta cómo leer esta tienda' }
@@ -108,6 +126,7 @@ export async function buscar(q, alTerminar = (p) => p) {
   if (hayDB()) {
     alTerminar((async () => {
       await guardarOfertas(encontradas);
+      if (paginasLeidas.length) await guardarPaginas(paginasLeidas);
       if (grupos.length) await rest('rpc/registrar_busqueda', { metodo: 'POST', cuerpo: { t: llave } });
     })().catch((e) => console.error('No se pudo guardar la búsqueda:', e.message)));
   }
