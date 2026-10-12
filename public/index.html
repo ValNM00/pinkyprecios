@@ -4,23 +4,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PinkyPrecios</title>
-<meta name="description" content="Compará precios reales de tecnología, hogar, supermercado y ferretería entre tiendas de Costa Rica.">
+<meta name="description" content="Compará precios reales de tecnología, hogar, supermercado y ferretería entre tiendas de Costa Rica. Historial de precios, alertas y detector de descuentos inflados.">
 <meta name="theme-color" content="#c8386d">
+<!-- Vista previa al compartir (WhatsApp, Facebook, etc.) -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PinkyPrecios">
+<meta property="og:title" content="PinkyPrecios · Compará precios reales en Costa Rica">
+<meta property="og:description" content="Buscamos en vivo en las tiendas de Costa Rica, guardamos el historial de cada precio y te avisamos cuando un descuento no es real.">
+<meta property="og:image" content="/img/logo-completo.png">
+<meta name="twitter:card" content="summary_large_image">
+<!-- App instalable -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PinkyPrecios">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,500..700,100,0..1;1,9..144,400..600,100,0..1&family=Nunito:wght@400;500;600;700;800;900&display=swap">
-<link rel="icon" type="image/png" href="img/favicon.png">
-<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<a class="saltar" href="#app">Saltar al contenido</a>
+
+<div class="anuncio" id="anuncio">
+  <div class="anuncio-in">
+    <span id="anuncio-tc">Tipo de cambio de hoy · cargando…</span>
+    <span class="anuncio-sep" aria-hidden="true">✦</span>
+    <span>Precios reales, revisados cada 6 horas</span>
+    <span class="anuncio-sep solo-ancho" aria-hidden="true">✦</span>
+    <span class="solo-ancho">Nuevas ofertas de la semana cada día</span>
+  </div>
+</div>
+
 <header class="topbar">
   <div class="topbar-in">
-    <a class="logo" href="#" data-action="inicio" aria-label="Ir al inicio" id="logo"></a>
-    <form class="search" id="form-top" role="search">
+    <a class="logo" href="./" data-action="inicio" aria-label="PinkyPrecios, ir al inicio" id="logo"></a>
+    <form class="search" id="form-top" role="search" autocomplete="off">
       <label class="sr-only" for="q">Buscar productos</label>
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input id="q" type="search" placeholder="Buscá un producto, por ejemplo “freidora de aire”" autocomplete="off" enterkeyhint="search">
+      <input id="q" type="search" placeholder="Buscá un producto, marca o modelo" enterkeyhint="search" aria-autocomplete="list" aria-controls="sugerir-top" aria-expanded="false">
+      <button type="submit" class="search-btn" aria-label="Buscar">Buscar</button>
+      <div class="sugerir" id="sugerir-top" role="listbox" hidden></div>
     </form>
     <nav class="top-actions" aria-label="Herramientas">
       <div class="moneda" role="group" aria-label="Moneda">
@@ -28,11 +53,15 @@
         <button type="button" data-action="moneda" data-m="USD" id="m-usd">US$</button>
       </div>
       <button type="button" class="pill-btn icon-btn solo-ancho" data-action="tema" id="btn-tema" aria-label="Cambiar tema"></button>
-      <button type="button" class="pill-btn" data-action="panel" data-p="tiendas" aria-label="Ranking de tiendas"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16l-1.5-5h-13zM5 10v9h14v-9M10 19v-5h4v5"/></svg><span class="lbl">Tiendas</span></button>
+      <button type="button" class="pill-btn solo-ancho" data-action="panel" data-p="tiendas" aria-label="Tiendas"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16l-1.5-5h-13zM5 10v9h14v-9M10 19v-5h4v5"/></svg><span class="lbl">Tiendas</span></button>
       <button type="button" class="pill-btn" data-action="panel" data-p="alertas" aria-label="Alertas"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="lbl">Alertas</span> <span class="count" id="n-alertas">0</span></button>
+      <button type="button" class="pill-btn btn-cuenta" data-action="panel" data-p="cuenta" id="btn-cuenta" aria-label="Tu cuenta"><span class="avatar sin-sesion" id="avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="lbl" id="cuenta-lbl">Ingresar</span></button>
       <button type="button" class="pill-btn" data-action="panel" data-p="lista" aria-label="Mi lista"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg><span class="lbl">Mi lista</span> <span class="count" id="n-lista">0</span></button>
     </nav>
   </div>
+  <nav class="catnav" aria-label="Categorías">
+    <div class="catnav-in" id="catnav"></div>
+  </nav>
 </header>
 
 <main id="app" class="wrap" aria-live="polite">
@@ -46,9 +75,40 @@
 
 <div class="toast" id="toast" role="status" hidden></div>
 
-<footer class="wrap pie">
-  <p id="pie-fuente"></p>
-  <p>Precios tomados de los sitios públicos de cada tienda. Pueden cambiar en cualquier momento: confirmá en la tienda antes de comprar. PinkyPrecios no está afiliado a ninguna tienda.</p>
+<button type="button" class="ayuda-btn" data-action="panel" data-p="asistente" aria-label="Abrir asistente de ayuda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9 10h.01M12 10h.01M15 10h.01"/></svg><span>¿Te ayudo?</span></button>
+
+<footer class="pie">
+  <div class="pie-in">
+    <div class="pie-marca">
+      <img src="img/logo.png" alt="" width="54" height="54">
+      <p class="pie-nombre">Pinky<i>Precios</i></p>
+      <p>Compará precios reales de tiendas de Costa Rica. Proyecto final de programación.</p>
+    </div>
+    <div class="pie-col">
+      <p class="pie-t">Explorar</p>
+      <div id="pie-categorias"></div>
+    </div>
+    <div class="pie-col">
+      <p class="pie-t">Herramientas</p>
+      <button type="button" data-action="panel" data-p="lista">Mi lista</button>
+      <button type="button" data-action="panel" data-p="alertas">Alertas de precio</button>
+      <button type="button" data-action="panel" data-p="tiendas">Ranking y estado de tiendas</button>
+      <button type="button" data-action="instalar" id="btn-instalar" hidden>Instalar la app</button>
+    </div>
+    <div class="pie-col">
+      <p class="pie-t">Contacto</p>
+      <a href="./?ver=contacto" data-action="ir" data-ver="contacto">Escribinos</a>
+      <a href="https://wa.me/50689376664" target="_blank" rel="noopener" id="pie-wa">WhatsApp +506 8937 6664</a>
+      <a href="mailto:naranjov740@gmail.com" id="pie-correo">naranjov740@gmail.com</a>
+      <a href="./?ver=ofertas" data-action="ir" data-ver="ofertas">Ofertas de la semana</a>
+    </div>
+    <div class="pie-col">
+      <p class="pie-t">Transparencia</p>
+      <p id="pie-fuente"></p>
+      <p>Solo leemos lo que cada tienda permite a los robots en su archivo robots.txt. No estamos afiliados a ninguna tienda.</p>
+    </div>
+  </div>
+  <p class="pie-legal"><span>© <span id="anio">2026</span> <b>Valeria Naranjo</b> · PinkyPrecios. Todos los derechos reservados.</span><span>Los precios pueden cambiar en cualquier momento: confirmá en la tienda antes de comprar.</span></p>
 </footer>
 
 <script src="config.js"></script>

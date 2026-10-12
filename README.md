@@ -26,13 +26,15 @@ Cuando alguien busca un producto, la página consulta en ese momento los catálo
 
 ## Tiendas
 
-| Tienda | Cómo se lee | Estado verificado |
+| Tienda | Rubro | Cómo se lee |
 |---|---|---|
-| Walmart | API pública de catálogo (VTEX), búsqueda en vivo | ✔ Probado: devuelve precio, precio anterior, existencias, cuotas y código de barras |
-| Simán | API pública de catálogo (VTEX), búsqueda en vivo | ✔ Probado |
-| iCon | Catálogo público de Shopify (`/products.json`), indexado cada día | ✔ Probado (precios en dólares, se convierten a colones) |
-| Monge | Mapa del sitio + datos de cada página de producto | Su `robots.txt` bloquea las búsquedas pero permite las páginas de producto |
-| Gollo, Ekono, iShop, La Curacao, PriceSmart | Detección automática | No se pudieron verificar durante el desarrollo. Revisalas en `/api/diagnostico` después de publicar |
+| Walmart, Simán | Tecnología y hogar | API pública VTEX, búsqueda en vivo |
+| Maxi Palí, Más x Menos | Supermercado | API pública VTEX, búsqueda en vivo |
+| Monge, Gollo, La Curacao | Tecnología y hogar | Mapa del sitio + precio de cada página (con memoria de 24 h) |
+| iCon | Tecnología | Catálogo público de Shopify (precios en dólares convertidos a colones) |
+| Palí, Auto Mercado, Pequeño Mundo, Steren, Tienda Credix, Office Depot, Extreme Tech, ADN Tienda, Unimart, Intelec, Kölbi, Pacifiko, EPA, El Lagar | Varios | **Detección automática**: la página prueba VTEX, Shopify, WooCommerce y mapa del sitio. Solo aparecen si funcionan; las demás quedan "en evaluación" en el panel de Tiendas |
+
+**Descartadas:** Ekono e iShop (rechazan la conexión del robot) y PriceSmart (sus páginas no entregan el precio a un robot).
 
 **Reglas que respeta el robot:**
 - Lee el `robots.txt` de cada tienda y no entra donde la tienda no lo permite.
@@ -78,7 +80,7 @@ La página nunca habla directo con Supabase. Solo las funciones de Netlify tiene
 2. Abrí **SQL Editor → New query**, pegá todo `supabase/schema.sql` y dale **Run**.
 3. En **Project Settings → API** copiá:
    - **Project URL**
-   - la clave **service_role** (es secreta: nunca la pongas en archivos de `public/` ni la subas a GitHub)
+   - la clave **secreta** (`sb_secret_…`, o la antigua **service_role**). Es secreta: nunca la pongas en archivos de `public/` ni la subas a GitHub
 
 ### 2. Código en GitHub
 Creá un repositorio y subí esta carpeta completa. Podés arrastrar los archivos en GitHub con **Add file → Upload files**, o usar `git`.
@@ -100,8 +102,17 @@ Creá un repositorio y subí esta carpeta completa. Podés arrastrar los archivo
    Cada vez avanza con una tienda: primero detecta las de modo automático, después indexa iCon y Monge.
 3. Buscá algo en la página. Desde ese momento el historial empieza a llenarse solo.
 
-### 5. Correos de alertas (opcional)
-Creá una cuenta gratis en <https://resend.com> y agregá `RESEND_API_KEY` en Netlify. Sin esa clave, las alertas igual se marcan como cumplidas y se ven en la página.
+### 5. Cuentas de usuario
+1. En Supabase → **SQL Editor**, corré `supabase/actualizacion-2.sql` (si instalaste desde cero con `schema.sql` ya está incluido).
+2. En Supabase → **Authentication → URL Configuration**: *Site URL* = `https://TU-SITIO.netlify.app` y en *Redirect URLs* agregá `https://TU-SITIO.netlify.app/**`.
+3. Poné la URL del proyecto y la clave **publishable** en `public/config.js` (es pública por diseño).
+4. Opcional para la presentación: en **Authentication → Providers → Email** podés desactivar *Confirm email* para que las cuentas queden activas al instante (el correo gratuito de Supabase envía pocos mensajes por hora).
+
+### 6. Asistente con IA (opcional)
+Sin configurar nada, el asistente responde las preguntas frecuentes. Para que use IA en las demás, agregá `ANTHROPIC_API_KEY` (y opcionalmente `ANTHROPIC_MODEL`, por defecto `claude-haiku-5-5`) en las variables de Netlify. Tiene costo por uso.
+
+### 7. Correos de alertas y de contacto (opcional)
+Creá una cuenta gratis en <https://resend.com> y agregá `RESEND_API_KEY` en Netlify. Con esa clave llegan los correos de alertas cumplidas y los mensajes del formulario de contacto (a `CONTACTO_CORREO`, por defecto naranjov740@gmail.com). Sin la clave, las alertas igual se marcan como cumplidas en la página y los mensajes quedan guardados en la tabla `mensajes` de Supabase.
 
 ---
 
@@ -125,3 +136,8 @@ Sin Supabase, la búsqueda en vivo de Walmart y Simán igual funciona. Lo que no
 - El historial empieza el día que se publica la página. "¿Buen momento?" necesita al menos 7 días de datos, y el detector de descuentos inflados al menos 25.
 - Si una tienda cambia su sitio, puede dejar de leerse. El diagnóstico lo muestra.
 - Las funciones gratuitas de Netlify tienen 10 segundos por búsqueda. Por eso las tiendas lentas se cortan y aparecen como "muy lenta".
+
+---
+
+© 2026 Valeria Naranjo · PinkyPrecios. Todos los derechos reservados.
+Contacto: naranjov740@gmail.com · WhatsApp +506 8937 6664

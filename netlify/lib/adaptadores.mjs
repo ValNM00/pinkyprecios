@@ -158,8 +158,21 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
   let leidos = 0, otroPais = 0;
   // Tiendas con varios países (La Curacao /costarica, PriceSmart /es-cr): solo se guardan páginas de Costa Rica
   const ruta = new URL(t.url).pathname.replace(/\/$/, '');
-  const segmento = ruta.split('/').filter(Boolean).pop() || '';
-  const delPais = (u) => { try { return new URL(u).pathname.toLowerCase().startsWith(ruta.toLowerCase() + '/'); } catch (e) { return false; } };
+  const segmento = (ruta.split('/').filter(Boolean).pop() || '').toLowerCase();
+  // Formas en que una tienda puede marcar Costa Rica en sus direcciones
+  const marcas = !segmento ? [] : /costa|(^|-)cr$/.test(segmento)
+    ? [segmento, 'costarica', 'costa-rica', 'costa_rica', 'es-cr', 'es_cr', '/cr/', '/cr_', '_cr/', '_cr.', '_cr_', '-cr.', '-cr/', 'cr.xml']
+    : [segmento];
+  const marcado = (texto) => { const x = String(texto).toLowerCase(); return marcas.some((m) => x.includes(m)); };
+  const palabras = marcas.filter((m) => /^[a-z][a-z_-]{3,}$/.test(m)); // costarica, costa-rica, es-cr…
+  const delPais = (u) => {
+    try {
+      const p = new URL(u).pathname.toLowerCase();
+      const primero = p.split('/').filter(Boolean)[0] || '';
+      return palabras.some((m) => primero === m || primero.startsWith(m + '_') || primero.startsWith(m + '-')) || p.startsWith('/cr/');
+    } catch (e) { return false; }
+  };
+  const descartadas = [];
   while (cola.length && urls.length < limite) {
     const resta = tiempo - (Date.now() - inicio);
     if (resta < 1500) { notas.push(`se acabó el tiempo con ${cola.length} mapas pendientes`); break; }
@@ -175,17 +188,18 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
     const locs = [...xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?([^<\]]+?)(?:\]\]>)?\s*<\/loc>/g)].map((m) => m[1].trim().replace(/&amp;/g, '&'));
     if (/<sitemapindex/i.test(xml)) {
       let hijos = locs;
-      if (segmento) { const delPais = hijos.filter((l) => l.toLowerCase().includes(segmento.toLowerCase())); if (delPais.length) hijos = delPais; }
+      if (segmento) { const delPaisHijos = hijos.filter(marcado); if (delPaisHijos.length) hijos = delPaisHijos; }
+      if (!notas.some((n) => n.startsWith('ejemplos de mapas'))) notas.push('ejemplos de mapas: ' + locs.slice(0, 3).map((l) => l.replace(/^https?:\/\/[^/]+/, '')).join(' , '));
       const deProductos = hijos.filter((l) => /product|producto|catalog/i.test(l));
       cola.push(...(deProductos.length ? deProductos : hijos).slice(0, 25));
       continue;
     }
     if (!locs.length) notas.push(`${sm.replace(/^https?:\/\/[^/]+/, '')}: no parece un mapa del sitio`);
     // Si el propio mapa es del país (ej. .../costarica/sitemap.xml), todas sus páginas cuentan como de Costa Rica
-    const mapaDelPais = segmento && sm.toLowerCase().includes(segmento.toLowerCase());
+    const mapaDelPais = segmento && marcado(sm);
     for (const u of locs) {
       if (urls.length >= limite) break;
-      if (ruta && !mapaDelPais && !delPais(u)) { otroPais++; continue; }
+      if (ruta && !mapaDelPais && !delPais(u)) { otroPais++; if (descartadas.length < 3) descartadas.push(u.replace(/^https?:\/\/[^/]+/, '')); continue; }
       if (vistos.has(u) || NO_PRODUCTO.test(u) || u.includes('?')) continue;
       const texto = textoDeUrl(u);
       if (texto.split(' ').length < 2) continue;
@@ -194,7 +208,7 @@ export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) 
     }
   }
   notas.unshift(`${leidos} ${leidos === 1 ? 'mapa leído' : 'mapas leídos'}`);
-  if (otroPais) notas.push(`${otroPais} páginas de otros países descartadas`);
+  if (otroPais) notas.push(`${otroPais} páginas de otros países descartadas (ejemplos: ${descartadas.join(' , ')})`);
   return { urls, notas };
 }
 

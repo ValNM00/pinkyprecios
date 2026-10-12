@@ -10,6 +10,8 @@ import { hayDB, rest, lista, guardarOfertas, guardarPaginas, tiendasDB, guardarT
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 const haceDias = (d) => new Date(Date.now() - d * 864e5).toISOString();
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'setiembre', 'octubre', 'noviembre', 'diciembre'];
+const fechaLinda = (iso) => { const [, m, d] = String(iso).split('-'); return `${Number(d)} de ${MESES[Number(m) - 1]}`; };
 const fechaHaceDias = (d) => new Date(Date.now() - d * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
 
 // ---------------- Tiendas con su estado guardado ----------------
@@ -157,7 +159,7 @@ export function analizar(ofertas, historial) {
 
   let momento;
   if (actual == null) momento = { nivel: 'agotado', titulo: 'Agotado', texto: 'Ninguna tienda lo tiene disponible en este momento.' };
-  else if (dias.length < 7) momento = { nivel: 'registrando', titulo: 'Estamos registrando este precio', texto: desde ? `Guardamos su precio todos los días desde el ${desde}. Con una semana de datos te decimos si es buen momento para comprar.` : 'Desde hoy guardamos su precio todos los días. Con una semana de datos te decimos si es buen momento para comprar.' };
+  else if (dias.length < 7) momento = { nivel: 'registrando', titulo: 'Estamos registrando este precio', texto: desde ? `Guardamos su precio todos los días desde el ${fechaLinda(desde)}. Con una semana de datos te decimos si es buen momento para comprar.` : 'Desde hoy guardamos su precio todos los días. Con una semana de datos te decimos si es buen momento para comprar.' };
   else {
     const recientes = dias.filter((d) => d >= limite90).map((d) => porDia.get(d));
     const min = Math.min(...recientes, actual);
@@ -202,12 +204,13 @@ export async function inicio() {
   const tiendas = (await tiendasEfectivas()).map(resumenTienda);
   if (!hayDB()) return { tipoCambio: tc, tiendas, baseDeDatos: false, rebajas: [], populares: [], ranking: [], stats: null };
 
-  const [conteo, hist, rebajasFilas, populares, paraRanking] = await Promise.all([
+  const [conteo, hist, rebajasFilas, populares, paraRanking, nBusquedas] = await Promise.all([
     rest('ofertas?select=id&limit=1', { contar: true }),
     rest('historial_precios?select=fecha&order=fecha.asc&limit=1', { contar: true }),
     rest(`ofertas?select=*&disponible=is.true&descuento=gte.0.08&actualizado=gte.${haceDias(3)}&order=descuento.desc&limit=40`),
     rest('busquedas?select=termino,veces&order=veces.desc,ultima.desc&limit=10'),
-    rest(`ofertas?select=id,tienda_id,precio,ean,modelo,marca&disponible=is.true&actualizado=gte.${haceDias(7)}&limit=20000`)
+    rest(`ofertas?select=id,tienda_id,precio,ean,modelo,marca&disponible=is.true&actualizado=gte.${haceDias(7)}&limit=20000`),
+    rest('busquedas?select=termino&limit=1', { contar: true })
   ]);
 
   // Rebajas: sin repetir producto y descartando las que el historial muestra como infladas
@@ -216,7 +219,7 @@ export async function inicio() {
   if (rebajas.length) {
     const h = await rest(`historial_precios?select=oferta_id,fecha,precio&oferta_id=in.${lista(rebajas.map((o) => o.id))}&fecha=gte.${fechaHaceDias(90)}&limit=5000`);
     const { inflados } = analizar(rebajas, h);
-    rebajas = rebajas.filter((o) => inflados[o.id] !== true).map((o) => ({ ...o, confirmada: inflados[o.id] === false })).slice(0, 12);
+    rebajas = rebajas.filter((o) => inflados[o.id] !== true).map((o) => ({ ...o, confirmada: inflados[o.id] === false })).slice(0, 16);
   }
 
   // Ranking: cuántas veces cada tienda tiene el precio más bajo en productos que venden 2 o más tiendas
@@ -253,7 +256,7 @@ export async function inicio() {
 
   return {
     tipoCambio: tc, tiendas, baseDeDatos: true,
-    stats: { ofertas: conteo.total, registros: hist.total, desde: hist.datos?.[0]?.fecha || null, comparables },
+    stats: { ofertas: conteo.total, registros: hist.total, desde: hist.datos?.[0]?.fecha || null, comparables, busquedas: nBusquedas.total },
     rebajas, populares, ranking
   };
 }
@@ -333,17 +336,28 @@ export async function indexar({ tiempo = 20000, tienda = null } = {}) {
   // 1) Detectar tiendas nuevas en modo automático
   const elegida = tienda ? tiendas.find((t) => t.id === tienda) : null;
   if (tienda && !elegida) return { error: `No existe la tienda "${tienda}"` };
-  const sinDetectar = elegida
-    ? (elegida.plataforma === 'auto' && ['auto', 'ninguna'].includes(elegida.plataformaReal) ? elegida : null)
-    : tiendas.find((t) => t.plataforma === 'auto' && (t.plataformaReal === 'auto'
-        // las que no funcionaban se vuelven a probar cada 3 días, por si la tienda cambió
-        || (t.plataformaReal === 'ninguna' && (!t.revisado || Date.now() - new Date(t.revisado).getTime() > 72 * 3600e3))));
-  if (sinDetectar) {
-    const d = await detectar(sinDetectar);
-    await guardarTienda({ ...base(sinDetectar), plataforma_detectada: d.plataforma, estado: d.plataforma === 'ninguna' ? 'no_disponible' : 'pendiente', detalle: d.detalle });
+  const pendienteDeDetectar = (t) => t.plataforma === 'auto' && (t.plataformaReal === 'auto'
+    // las que no funcionaban se vuelven a probar cada 3 días, por si la tienda cambió
+    || (t.plataformaReal === 'ninguna' && (!t.revisado || Date.now() - new Date(t.revisado).getTime() > 72 * 3600e3)));
+  const porDetectar = elegida
+    ? (elegida.plataforma === 'auto' && ['auto', 'ninguna'].includes(elegida.plataformaReal) ? [elegida] : [])
+    : tiendas.filter(pendienteDeDetectar).slice(0, 10);
+  if (porDetectar.length) {
+    // Todas a la vez, cada una con un máximo de 7 segundos
+    const detectadas = await Promise.all(porDetectar.map(async (t) => {
+      let d;
+      try { d = await conLimite(detectar(t), 7000); }
+      catch (e) { d = { plataforma: 'ninguna', detalle: 'La tienda tardó demasiado en responder' }; }
+      await guardarTienda({ ...base(t), plataforma_detectada: d.plataforma, estado: d.plataforma === 'ninguna' ? 'no_disponible' : 'pendiente', detalle: d.detalle }).catch(() => {});
+      return { tienda: t.id, plataforma: d.plataforma, detalle: d.detalle };
+    }));
     cacheTiendas = null;
-    return { tienda: sinDetectar.id, detectada: d };
+    if (!elegida) return { detectadas };
+    const d = detectadas[0];
+    if (!['shopify', 'sitemap'].includes(d.plataforma) || Date.now() - ini > tiempo - 4000) return { detectadas };
+    elegida.plataformaReal = d.plataforma; // sigue directo a indexarla
   }
+
 
   // 2) Indexar la tienda con el índice más viejo (o continuar una que quedó a medias)
   const indexables = tiendas.filter((t) => ['shopify', 'sitemap'].includes(t.plataformaReal))

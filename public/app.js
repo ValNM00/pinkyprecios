@@ -8,9 +8,10 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+  const guardarLocal = (k, v) => { try { localStorage.setItem('pp_' + k, JSON.stringify(v)); } catch (e) { /* sin almacenamiento */ } };
   const guardar = {
     get(k, d) { try { const v = localStorage.getItem('pp_' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem('pp_' + k, JSON.stringify(v)); } catch (e) { /* sin almacenamiento */ } }
+    set(k, v) { guardarLocal(k, v); if (['lista', 'alertas', 'vistos', 'recientes'].includes(k)) programarSubida(); }
   };
   const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'set', 'oct', 'nov', 'dic'];
   const fechaCorta = (iso) => { const [y, m, d] = String(iso).slice(0, 10).split('-'); return `${Number(d)} ${MESES[Number(m) - 1]}${y !== String(new Date().getFullYear()) ? ' ' + y : ''}`; };
@@ -51,7 +52,7 @@
     busqueda: null,                         // { q, cargando, resultado, error }
     f: { cat: 'Todas', tiendas: [], precioMax: null, soloVarias: false, soloRebaja: false, agotados: false, abiertos: false },
     orden: 'relevancia',
-    vista: 'inicio', detalle: null, modoPago: 'contado', panel: null
+    vista: 'inicio', detalle: null, modoPago: 'contado', panel: null, canasta: null
   };
 
   // ---------- Dinero ----------
@@ -113,6 +114,60 @@
     return { id: g.id, ids: idsDe(g), nombre: g.nombre, imagen: g.imagen, marca: g.marca, precio: m ? m.precio : null, tienda: m ? m.tienda : null, fecha: new Date().toISOString() };
   }
 
+  // ---------- Categorías ----------
+  const ICAT = {
+    cel: '<svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
+    tv: '<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="1.5"/><path d="M8 20.5h8M12 16.5v4"/></svg>',
+    lap: '<svg viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20l-2-4H4z"/></svg>',
+    aud: '<svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4.5" height="7" rx="1.5"/><rect x="16.5" y="14" width="4.5" height="7" rx="1.5"/></svg>',
+    refri: '<svg viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M5 9.5h14M8.5 5.5v2M8.5 12.5v3"/></svg>',
+    cocina: '<svg viewBox="0 0 24 24"><path d="M6 10h12v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/><path d="M4 10h16M9 6c0-1 1-1.5 1-2.5M13 6c0-1 1-1.5 1-2.5"/></svg>',
+    super: '<svg viewBox="0 0 24 24"><path d="M3 4h2l2.2 10.5a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L20.5 8H6.2"/><circle cx="9.5" cy="19.5" r="1.3"/><circle cx="17" cy="19.5" r="1.3"/></svg>',
+    ferre: '<svg viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0 5 5l-8.5 8.5a2 2 0 0 1-3-3z"/><path d="M14.5 6.5 17 4l3 3-2.5 2.5"/></svg>',
+    game: '<svg viewBox="0 0 24 24"><path d="M7 8h10a4 4 0 0 1 4 4v1.5a3 3 0 0 1-5.4 1.8L14.5 14h-5l-1.1 1.3A3 3 0 0 1 3 13.5V12a4 4 0 0 1 4-4z"/><path d="M8 10.5v3M6.5 12h3M15.5 11h.01M17.5 13h.01"/></svg>',
+    belleza: '<svg viewBox="0 0 24 24"><path d="M9 3h6v4l-1 2v11a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V9L9 7z"/><path d="M10 13h4"/></svg>'
+  };
+  const CATEGORIAS = [
+    { nombre: 'Celulares', q: 'celular', ejemplo: 'iPhone, Samsung, Xiaomi', icono: ICAT.cel, fondo: 'bg-rosa' },
+    { nombre: 'Pantallas', q: 'pantalla', ejemplo: 'Smart TV de 32" a 85"', icono: ICAT.tv, fondo: 'bg-lila' },
+    { nombre: 'Computadoras', q: 'laptop', ejemplo: 'Laptops y monitores', icono: ICAT.lap, fondo: 'bg-cielo' },
+    { nombre: 'Audio', q: 'audífonos', ejemplo: 'Audífonos y parlantes', icono: ICAT.aud, fondo: 'bg-mante' },
+    { nombre: 'Línea blanca', q: 'refrigeradora', ejemplo: 'Refris, lavadoras, cocinas', icono: ICAT.refri, fondo: 'bg-menta' },
+    { nombre: 'Cocina', q: 'freidora de aire', ejemplo: 'Freidoras, licuadoras', icono: ICAT.cocina, fondo: 'bg-durazno' },
+    { nombre: 'Supermercado', q: 'café', ejemplo: 'Café, arroz, aceite', icono: ICAT.super, fondo: 'bg-rosa' },
+    { nombre: 'Ferretería', q: 'taladro', ejemplo: 'Herramientas', icono: ICAT.ferre, fondo: 'bg-cielo' },
+    { nombre: 'Gaming', q: 'consola', ejemplo: 'Consolas y juegos', icono: ICAT.game, fondo: 'bg-lila' },
+    { nombre: 'Cuidado personal', q: 'secadora de pelo', ejemplo: 'Secadoras, planchas', icono: ICAT.belleza, fondo: 'bg-durazno' }
+  ];
+
+  // ---------- Precio por kilo o litro (supermercado) ----------
+  function porUnidad(g) {
+    const m = mejor(g);
+    if (!m) return null;
+    const t = norm(g.nombre).replace(/,/g, '.');
+    const r = t.match(/(\d+(?:\.\d+)?)\s*(kg|kilo|kilos|g|gr|grs|gramos|l|lt|lts|litro|litros|ml|cc)\b/);
+    if (!r) return null;
+    let cant = parseFloat(r[1]);
+    const u = r[2];
+    const pack = t.match(/\b(\d{1,2})\s*(?:x|unidades|unid|pack)\b/) || t.match(/\bx\s*(\d{1,2})\b/);
+    const veces = pack ? Math.min(48, parseInt(pack[1], 10)) : 1;
+    let unidad;
+    if (['kg', 'kilo', 'kilos'].includes(u)) unidad = 'kg';
+    else if (['g', 'gr', 'grs', 'gramos'].includes(u)) { cant /= 1000; unidad = 'kg'; }
+    else if (['ml', 'cc'].includes(u)) { cant /= 1000; unidad = 'litro'; }
+    else unidad = 'litro';
+    cant *= veces;
+    if (!cant || cant > 200) return null;
+    return { valor: m.precio / cant, unidad };
+  }
+
+  // ---------- Búsquedas recientes (solo en este navegador) ----------
+  const recientes = () => guardar.get('recientes', []);
+  function recordarBusqueda(q) {
+    const l = [q, ...recientes().filter((x) => norm(x) !== norm(q))].slice(0, 8);
+    guardar.set('recientes', l);
+  }
+
   // ---------- Navegación (URL compartible) ----------
   function irA(params, reemplazar = false) {
     const u = new URL(location.href);
@@ -124,8 +179,10 @@
 
   function leerUrl() {
     const p = new URL(location.href).searchParams;
-    const q = p.get('q'), ids = p.get('p');
-    if (ids) abrirProducto(ids.split(','));
+    const q = p.get('q'), ids = p.get('p'), ver = p.get('ver');
+    if (ver === 'ofertas') { S.vista = 'ofertas'; if (!S.ofertas?.datos) cargarOfertas(); else render(); window.scrollTo(0, 0); }
+    else if (ver === 'contacto') { S.vista = 'contacto'; render(); window.scrollTo(0, 0); }
+    else if (ids) abrirProducto(ids.split(','));
     else if (q) iniciarBusqueda(q);
     else { S.vista = 'inicio'; render(); }
   }
@@ -137,6 +194,7 @@
     $('#q').value = q;
     if (S.busqueda && S.busqueda.q === q && (S.busqueda.resultado || S.busqueda.cargando)) { render(); return; }
     S.busqueda = { q, cargando: true, resultado: null, error: null };
+    recordarBusqueda(q);
     S.f = { cat: 'Todas', tiendas: [], precioMax: null, soloVarias: false, soloRebaja: false, agotados: false, abiertos: false };
     render();
     window.scrollTo(0, 0);
@@ -177,6 +235,7 @@
     if (S.orden === 'precio-desc') l.sort((a, b) => precio(b) - precio(a));
     if (S.orden === 'ahorro') l.sort((a, b) => ahorro(b) - ahorro(a));
     if (S.orden === 'tiendas') l.sort((a, b) => tiendasDe(b).length - tiendasDe(a).length || precio(a) - precio(b));
+    if (S.orden === 'unidad') l.sort((a, b) => (porUnidad(a)?.valor ?? Infinity) - (porUnidad(b)?.valor ?? Infinity));
     return l;
   }
 
@@ -187,42 +246,85 @@
 
   function vistaInicio() {
     const ini = S.inicio;
+    const act = tiendasActivas();
     const populares = ini?.populares?.length ? ini.populares.map((p) => p.termino) : SUGERENCIAS;
+    const rubros = [...new Set(act.map((t) => t.rubro).filter(Boolean))].map((r) => r.toLowerCase().replace(' y ', ', '));
     return `
-      <section class="hero">
-        <h1>Compará precios reales y <em>ahorrá de verdad</em><span class="brillo" aria-hidden="true">✦</span></h1>
-        <p>${S.inicio ? `Comparamos <b>${tiendasActivas().length} tiendas</b> de Costa Rica` : 'Comparamos las tiendas de Costa Rica'} en tecnología, hogar${tiendasActivas().some((t) => t.rubro === 'Supermercado') ? ', supermercado' : ''}${tiendasActivas().some((t) => /Ferret/.test(t.rubro)) ? ' y ferretería' : ''}. Guardamos el historial de cada precio y te avisamos cuando un descuento no es real.</p>
-        <form class="buscador" id="form-hero" role="search">
-          ${I.lupa}
-          <label class="sr-only" for="q-hero">¿Qué querés comparar?</label>
-          <input id="q-hero" type="search" placeholder="¿Qué querés comparar?" autocomplete="off" enterkeyhint="search">
-          <button type="submit" class="btn primario">${I.chispa}<span class="lbl">Comparar</span></button>
-        </form>
-        <div class="sugerencias"><span>${ini?.populares?.length ? 'Lo más buscado:' : 'Probá con:'}</span>${populares.slice(0, 8).map((t) => `<button type="button" class="chip" data-action="buscar" data-q="${esc(t)}">${esc(t)}</button>`).join('')}</div>
-        ${estadoTiendasInicio()}
+      <section class="portada">
+        <div class="portada-txt">
+          <span class="ceja"><i>EN VIVO</i>Comparador de precios de Costa Rica</span>
+          <h1>Compará precios reales y <em>ahorrá de verdad</em><span class="brillo" aria-hidden="true">✦</span></h1>
+          <p>${act.length ? `Buscamos al instante en <b>${act.length} tiendas</b>${rubros.length ? ` de ${esc(rubros.join(', '))}` : ''}.` : 'Buscamos al instante en las tiendas de Costa Rica.'} Guardamos el historial de cada precio, te mostramos cuánto pagás a cuotas y te avisamos cuando un descuento no es real.</p>
+          <form class="buscador" id="form-hero" role="search" autocomplete="off" style="position:relative">
+            ${I.lupa}
+            <label class="sr-only" for="q-hero">¿Qué querés comparar?</label>
+            <input id="q-hero" type="search" placeholder="¿Qué querés comparar hoy?" enterkeyhint="search" aria-autocomplete="list" aria-controls="sugerir-hero" aria-expanded="false">
+            <button type="submit" class="btn primario">${I.chispa}<span class="lbl">Comparar</span></button>
+            <div class="sugerir" id="sugerir-hero" role="listbox" hidden></div>
+          </form>
+          <div class="sugerencias"><span>${ini?.populares?.length ? 'Lo más buscado:' : 'Probá con:'}</span>${populares.slice(0, 7).map((t) => `<button type="button" class="chip" data-action="buscar" data-q="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+          ${S.errorInicio ? `<p class="aviso">No pudimos conectar con el buscador: ${esc(S.errorInicio.message)}</p>` : ''}
+        </div>
+        ${vitrina()}
+      </section>
+      ${cintaTiendas()}
+      ${cifras()}
+      <section class="seccion" aria-labelledby="t-cats">
+        <div class="sec-head"><h2 id="t-cats">Explorá por <em>categoría</em></h2><p>Tocá una categoría y comparamos todas las tiendas a la vez.</p></div>
+        <div class="mosaico">${CATEGORIAS.map((c) => `<button type="button" class="cat-tile ${c.fondo}" data-action="buscar" data-q="${esc(c.q)}">${c.icono}<span><b>${esc(c.nombre)}</b><small>${esc(c.ejemplo)}</small></span></button>`).join('')}</div>
       </section>
       ${seccionRebajas()}
       ${seccionVistos()}
+      <section class="seccion" aria-labelledby="t-difs">
+        <div class="sec-head"><h2 id="t-difs">Más que un <em>comparador</em></h2><p>Lo que no vas a encontrar en otros comparadores.</p></div>
+        <div class="difs">
+          <div class="dif"><div class="muestra"><svg viewBox="0 0 200 64" preserveAspectRatio="none" aria-hidden="true"><path class="area" d="M0 40 L30 38 L60 44 L90 30 L120 34 L150 18 L180 22 L200 12 L200 64 L0 64Z"/><path class="linea" d="M0 40 L30 38 L60 44 L90 30 L120 34 L150 18 L180 22 L200 12"/></svg></div><b>Historial de precios</b><p>Cada precio se guarda todos los días. Sabés si de verdad bajó o si es el de siempre.</p></div>
+          <div class="dif"><div class="muestra"><div class="mini-fila"><span>Antes</span><s>₡389 900</s></div><div class="mini-fila"><span>Hace un mes</span><span>₡329 900</span></div><span class="badge b-falsa">Descuento inflado</span></div><b>Detector de descuentos falsos</b><p>Si subieron el precio para después “rebajarlo”, te lo decimos.</p></div>
+          <div class="dif"><div class="muestra"><div class="mini-fila"><span>12 cuotas</span><b>₡13 493</b></div><div class="mini-fila"><span>Total</span><span>₡161 910</span></div><span class="badge b-bueno">Tasa cero</span></div><b>Cuotas reales</b><p>Las cuotas que publica cada tienda y cuánto terminás pagando.</p></div>
+          <div class="dif"><div class="muestra"><div class="mini-fila"><span>Tu precio</span><b>₡150 000</b></div><div class="mini-fila"><span>Hoy</span><span>₡159 900</span></div><span class="badge b-rosa">Te avisamos</span></div><b>Alertas de precio</b><p>Elegí cuánto querés pagar y te escribimos cuando una tienda llegue.</p></div>
+        </div>
+      </section>
       <section class="seccion" aria-labelledby="t-como">
         <div class="sec-head"><h2 id="t-como">Cómo <em>funciona</em></h2></div>
-        <div class="pasos">
-          <div class="paso"><span class="ico cel">${I.tienda}</span><b>Buscamos en vivo</b><p>Cada búsqueda consulta los catálogos públicos de las tiendas en ese momento. Nada de precios inventados.</p></div>
-          <div class="paso"><span class="ico tv">${I.reloj}</span><b>Guardamos el historial</b><p>Cada precio encontrado se guarda y se vuelve a revisar cada 6 horas, así sabés si de verdad bajó.</p></div>
-          <div class="paso"><span class="ico coc">${I.campana}</span><b>Te avisamos</b><p>Poné tu precio objetivo y te avisamos cuando alguna tienda llegue a ese precio.</p></div>
+        <div class="pasos-n">
+          <div class="paso-n"><b>Buscás una vez</b><p>Escribís el producto y consultamos todas las tiendas conectadas al mismo tiempo, en vivo.</p></div>
+          <div class="paso-n"><b>Juntamos el mismo producto</b><p>Lo reconocemos por su código de barras o su modelo, aunque cada tienda lo llame distinto.</p></div>
+          <div class="paso-n"><b>Comprás donde conviene</b><p>Ves el precio de contado, las cuotas y el historial, y vas directo a la tienda.</p></div>
         </div>
-        ${ini?.stats ? `<p class="nota">${nf.format(ini.stats.ofertas)} precios guardados · ${nf.format(ini.stats.registros)} registros de historial${ini.stats.desde ? ` desde el ${fechaCorta(ini.stats.desde)}` : ''}.</p>` : ''}
       </section>`;
   }
 
-  function estadoTiendasInicio() {
-    if (S.errorInicio) return `<p class="aviso">No pudimos conectar con el buscador: ${esc(S.errorInicio.message)}</p>`;
-    if (!S.inicio) return '<div class="tiendas-estado"><span class="t-chip apagada">Revisando tiendas…</span></div>';
+  function vitrina() {
+    const rs = (S.inicio?.rebajas || []).filter((o) => o.imagen).slice(0, 3);
+    if (rs.length < 2) {
+      return `<div class="vitrina" aria-hidden="true"><div class="vit-deco"><span><small>DESDE</small>₡69 900</span><span><small>ANTES</small><s>₡389 900</s></span><span><small>AHORRÁS</small>₡40 000</span></div></div>`;
+    }
+    return `<div class="vitrina"><div class="vitrina-fila">${rs.map((o) => `
+      <button type="button" class="vit-card" data-action="ver" data-ids="${esc(o.id)}">
+        <span class="vit-pct">-${Math.round((1 - o.precio / o.antes) * 100)}%</span>
+        <span class="vit-img">${img(o.imagen)}</span>
+        <span><b>${esc(o.nombre)}</b><span class="vit-tienda">${esc(tiendaNombre(o.tienda))}</span><span class="vit-precio"><strong>${dinero(o.precio)}</strong><s>${dinero(o.antes)}</s></span></span>
+      </button>`).join('')}</div><p class="vit-nota">Rebajas reales encontradas hoy</p></div>`;
+  }
+
+  function cintaTiendas() {
     const act = tiendasActivas();
-    const otras = S.inicio.tiendas.length - act.length;
-    return `<div class="tiendas-estado" aria-label="Tiendas conectadas">
-      ${act.map((t) => `<span class="t-chip" title="${esc(t.rubro || '')}"><i class="dot ok"></i>${esc(t.nombre)}</span>`).join('')}
-      <button type="button" class="limpiar" data-action="panel" data-p="tiendas">${otras ? `y ${otras} más en evaluación` : 'Ver estado de las tiendas'}</button>
-    </div>`;
+    if (!act.length) return '';
+    const items = act.map((t) => `<span>${esc(t.nombre)}<i>${esc((t.rubro || '').split(' ')[0])}</i></span>`).join('');
+    const mueve = act.length > 4;
+    return `<section class="cinta" aria-label="Tiendas conectadas"><p class="cinta-t">Comparamos precios en</p>
+      <div class="cinta-pista ${mueve ? 'mueve' : ''}" style="${mueve ? '' : 'margin:0 auto'}">${items}${mueve ? `<span aria-hidden="true" hidden></span>${items.replace(/<span>/g, '<span aria-hidden="true">')}` : ''}</div></section>`;
+  }
+
+  function cifras() {
+    const st = S.inicio?.stats;
+    const n = (x) => (x == null ? '—' : nf.format(x));
+    return `<section class="cifras" aria-label="PinkyPrecios en números">
+      <div class="cifra"><strong>${S.inicio ? tiendasActivas().length : '—'}</strong><span>tiendas conectadas</span></div>
+      <div class="cifra"><strong>${n(st?.ofertas)}</strong><span>precios guardados</span></div>
+      <div class="cifra"><strong>${n(st?.registros)}</strong><span>registros de historial${st?.desde ? ` desde el ${fechaCorta(st.desde)}` : ''}</span></div>
+      <div class="cifra"><strong>${n(st?.busquedas)}</strong><span>productos distintos buscados</span></div>
+    </section>`;
   }
 
   function seccionRebajas() {
@@ -230,11 +332,11 @@
     if (!rs.length) return '';
     return `
       <section class="seccion" aria-labelledby="t-rebajas">
-        <div class="sec-head"><h2 id="t-rebajas">Rebajas <em>de hoy</em></h2><p>Precios rebajados que encontramos en las tiendas. Revisamos el historial para descartar descuentos inflados.</p></div>
+        <div class="sec-head"><h2 id="t-rebajas">Rebajas <em>de hoy</em></h2><button type="button" class="limpiar" data-action="ir" data-ver="ofertas">Ver todas las ofertas de la semana →</button></div>
         <div class="tira">${rs.map((o) => `
           <button type="button" class="oferta" data-action="ver" data-ids="${esc(o.id)}">
             <span class="pct">-${Math.round((1 - o.precio / o.antes) * 100)}%</span>
-            ${img(o.imagen, 'of-img')}
+            <span class="of-foto">${img(o.imagen)}</span>
             <span class="t">${esc(o.nombre)}</span>
             <span class="s">en ${esc(tiendaNombre(o.tienda))} · ${o.confirmada ? 'rebaja confirmada' : 'según la tienda'}</span>
             <span class="p">${dinero(o.precio)}<s>${dinero(o.antes)}</s></span>
@@ -261,84 +363,88 @@
     const cab = `<section class="res-head">
       <button type="button" class="volver" data-action="inicio" style="padding:0">← Inicio</button>
       <h1>Resultados para <em>${esc(b.q)}</em></h1>
-      ${b.cargando ? `<p>Buscando en ${S.inicio ? plural(tiendasActivas().length, 'tienda', 'tiendas') : 'las tiendas'}… puede tardar unos segundos.</p>` : ''}
-      ${r ? `<p>${plural(r.grupos.length, 'producto encontrado', 'productos encontrados')} en ${(r.ms / 1000).toFixed(1)} s · tocá una tienda para filtrar</p>${chipsTiendas(r)}` : ''}
+      ${b.cargando ? `<p>Buscando en ${S.inicio ? plural(tiendasActivas().length, 'tienda', 'tiendas') : 'las tiendas'} al mismo tiempo… puede tardar unos segundos.</p>` : ''}
+      ${r ? `<p>${plural(r.grupos.length, 'producto encontrado', 'productos encontrados')} en ${plural(r.tiendas.filter((t) => t.estado === 'ok').length, 'tienda', 'tiendas')} · ${(r.ms / 1000).toFixed(1)} s</p>` : ''}
     </section>`;
-    if (b.cargando) return cab + `<div class="grid">${Array.from({ length: 8 }, () => '<div class="esqueleto" aria-hidden="true"><i></i><i></i><i></i><i></i></div>').join('')}</div>`;
+    if (b.cargando) return cab + `<div class="grid res">${Array.from({ length: 10 }, () => '<div class="esqueleto" aria-hidden="true"><i></i><i></i><i></i><i></i></div>').join('')}</div>`;
     if (b.error) return cab + `<div class="grid"><div class="aviso-caja"><b>No pudimos buscar</b>${esc(b.error.message)}<br><button type="button" class="btn primario" data-action="reintentar">Intentar de nuevo</button></div></div>`;
-    if (!r.grupos.length) return cab + `<div class="grid"><div class="aviso-caja"><b>Ninguna tienda tiene “${esc(b.q)}”</b>Probá con menos palabras o con el nombre más común del producto, por ejemplo “pantalla 55” o “freidora de aire”.</div></div>`;
-
-    const cats = {};
-    for (const g of r.grupos) if (g.categoria) cats[g.categoria] = (cats[g.categoria] || 0) + 1;
-    const topCats = Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([c]) => c);
+    if (!r.grupos.length) return cab + `<div class="grid"><div class="aviso-caja"><b>Ninguna tienda tiene “${esc(b.q)}”</b>Probá con menos palabras o con el nombre más común del producto, por ejemplo “pantalla 55” o “freidora de aire”.<br>${CATEGORIAS.slice(0, 4).map((c) => `<button type="button" class="chip" data-action="buscar" data-q="${esc(c.q)}" style="margin:12px 4px 0">${esc(c.nombre)}</button>`).join('')}</div></div>`;
     const l = filtrados();
+    const hayUnidad = r.grupos.some((g) => porUnidad(g));
     return cab + `
-      <div class="filtros">
-        <div class="chips" role="group" aria-label="Categorías">
-          ${['Todas', ...topCats].map((c) => `<button type="button" class="chip" data-action="cat" data-c="${esc(c)}" aria-pressed="${S.f.cat === c}">${esc(c)}</button>`).join('')}
+      <div class="res-layout">
+        ${lateral(r)}
+        <div>
+          <div class="res-barra">
+            <p class="resultado" style="margin:0">${plural(l.length, 'producto', 'productos')}${filtrosActivos() || S.f.cat !== 'Todas' ? ' con los filtros elegidos' : ''}</p>
+            <div class="filtros-der">
+              <button type="button" class="chip suave btn-filtros" data-action="filtros" aria-expanded="${S.f.abiertos}" aria-pressed="${S.f.abiertos || filtrosActivos() > 0}">${I.filtro}Filtros${filtrosActivos() ? ` <span class="count on">${filtrosActivos()}</span>` : ''}</button>
+              <label class="orden">Ordenar
+                <select id="orden">
+                  ${[['relevancia', 'Más parecidos'], ['precio', 'Menor precio'], ['precio-desc', 'Mayor precio'], ['ahorro', 'Mayor diferencia entre tiendas'], ['tiendas', 'En más tiendas'], ...(hayUnidad ? [['unidad', 'Precio por kilo o litro']] : [])]
+                    .map(([v, t]) => `<option value="${v}" ${S.orden === v ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="grid res" aria-label="Productos">
+            ${l.length ? l.map(tarjeta).join('') : `<div class="aviso-caja"><b>Nada con esos filtros</b>Quitá algún filtro para ver más resultados.<br><button type="button" class="btn" data-action="limpiar-filtros">Quitar filtros</button></div>`}
+          </div>
         </div>
-        <div class="filtros-der">
-          <button type="button" class="chip suave" data-action="filtros" aria-expanded="${S.f.abiertos}" aria-pressed="${S.f.abiertos || filtrosActivos() > 0}">${I.filtro}Más filtros${filtrosActivos() ? ` <span class="count on">${filtrosActivos()}</span>` : ''}</button>
-          <label class="orden">Ordenar
-            <select id="orden">
-              ${[['relevancia', 'Más parecidos a tu búsqueda'], ['precio', 'Menor precio'], ['precio-desc', 'Mayor precio'], ['ahorro', 'Mayor diferencia entre tiendas'], ['tiendas', 'En más tiendas']]
-                .map(([v, t]) => `<option value="${v}" ${S.orden === v ? 'selected' : ''}>${t}</option>`).join('')}
-            </select>
-          </label>
-        </div>
-      </div>
-      ${S.f.abiertos ? panelFiltros(r) : ''}
-      <p class="resultado">${plural(l.length, 'producto', 'productos')}${filtrosActivos() || S.f.cat !== 'Todas' ? ' con los filtros elegidos' : ''}</p>
-      <div class="grid" aria-label="Productos">
-        ${l.length ? l.map(tarjeta).join('') : `<div class="aviso-caja"><b>Nada con esos filtros</b>Quitá algún filtro para ver más resultados.<br><button type="button" class="btn" data-action="limpiar-filtros">Quitar filtros</button></div>`}
       </div>`;
   }
 
-  function chipsTiendas(r) {
-    const nombres = { ok: '', sin_resultados: 'sin resultados', pendiente: 'pendiente', bloqueado: 'no permite', error: 'falló', no_disponible: 'no disponible', lento: 'muy lenta' };
-    const visibles = r.tiendas.filter((t) => ['ok', 'sin_resultados', 'lento'].includes(t.estado));
-    return `<div class="tiendas-estado">${visibles.map((t) => t.estado === 'ok'
-      ? `<button type="button" class="t-chip" data-action="tienda-f" data-t="${esc(t.id)}" aria-pressed="${S.f.tiendas.includes(t.id)}"><i class="dot ok"></i>${esc(t.nombre)} <span class="n">${t.n}</span></button>`
-      : `<span class="t-chip apagada" title="${esc(t.detalle || '')}"><i class="dot ${esc(t.estado)}"></i>${esc(t.nombre)} <span class="n">${nombres[t.estado] || ''}</span></span>`).join('')}</div>`;
-  }
-
-  function panelFiltros(r) {
+  function lateral(r) {
+    const nombres = { sin_resultados: 'sin resultados', lento: 'muy lenta' };
+    const conRes = r.tiendas.filter((t) => t.estado === 'ok');
+    const sinRes = r.tiendas.filter((t) => ['sin_resultados', 'lento'].includes(t.estado));
+    const cats = {};
+    for (const g of r.grupos) if (g.categoria) cats[g.categoria] = (cats[g.categoria] || 0) + 1;
+    const topCats = Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 8);
     const precios = r.grupos.map((g) => mejor(g)?.precio).filter(Boolean);
     const tope = Math.max(10000, Math.ceil(Math.max(...precios, 0) / 10000) * 10000);
     const piso = Math.max(0, Math.floor(Math.min(...precios, tope) / 10000) * 10000);
     const val = S.f.precioMax ?? tope;
-    return `
-      <div class="mas-filtros">
-        <div class="grupo">
-          <label class="grupo-t" for="precio-max">Precio máximo <output id="precio-max-v">${S.f.precioMax == null ? 'Sin límite' : 'Hasta ' + dinero(val)}</output></label>
-          <input type="range" id="precio-max" min="${piso}" max="${tope}" step="${tope > 500000 ? 10000 : 5000}" value="${val}">
-          <div class="rango-lim"><span>${dinero(piso)}</span><span>${dinero(tope)}</span></div>
-        </div>
-        <div class="grupo">
-          <span class="grupo-t">Mostrar solo</span>
-          <label class="switch"><input type="checkbox" id="f-varias" ${S.f.soloVarias ? 'checked' : ''}><span>En 2 o más tiendas<small>Para comparar de verdad</small></span></label>
-          <label class="switch"><input type="checkbox" id="f-rebaja" ${S.f.soloRebaja ? 'checked' : ''}><span>Con rebaja<small>La tienda muestra precio anterior</small></span></label>
-        </div>
-        <div class="grupo">
-          <span class="grupo-t">Además</span>
-          <label class="switch"><input type="checkbox" id="f-agotados" ${S.f.agotados ? 'checked' : ''}><span>Incluir agotados<small>Productos sin existencias</small></span></label>
-          ${filtrosActivos() ? '<button type="button" class="limpiar" data-action="limpiar-filtros">Quitar todos los filtros</button>' : ''}
-        </div>
-      </div>`;
+    return `<aside class="lateral ${S.f.abiertos ? 'abierta' : ''}" aria-label="Filtros">
+      <div class="lat-sec">
+        <span class="lat-t">Tiendas ${S.f.tiendas.length ? `<output>${S.f.tiendas.length} elegidas</output>` : ''}</span>
+        ${conRes.map((t) => `<label class="check"><input type="checkbox" data-filtro="tienda" value="${esc(t.id)}" ${S.f.tiendas.includes(t.id) ? 'checked' : ''}>${esc(t.nombre)}<span class="n">${t.n}</span></label>`).join('')}
+        ${sinRes.map((t) => `<span class="check" style="opacity:.55;cursor:default" title="${esc(t.detalle || '')}"><input type="checkbox" disabled>${esc(t.nombre)}<span class="n">${nombres[t.estado]}</span></span>`).join('')}
+      </div>
+      ${topCats.length > 1 ? `<div class="lat-sec">
+        <span class="lat-t">Categoría</span>
+        <label class="check"><input type="radio" name="lcat" data-filtro="cat" value="Todas" ${S.f.cat === 'Todas' ? 'checked' : ''}>Todas<span class="n">${r.grupos.length}</span></label>
+        ${topCats.map(([c, n]) => `<label class="check"><input type="radio" name="lcat" data-filtro="cat" value="${esc(c)}" ${S.f.cat === c ? 'checked' : ''}>${esc(c)}<span class="n">${n}</span></label>`).join('')}
+      </div>` : ''}
+      <div class="lat-sec">
+        <label class="lat-t" for="precio-max">Precio máximo <output id="precio-max-v">${S.f.precioMax == null ? 'Sin límite' : 'Hasta ' + dinero(val)}</output></label>
+        <input type="range" id="precio-max" min="${piso}" max="${tope}" step="${tope > 500000 ? 10000 : tope > 50000 ? 5000 : 500}" value="${val}">
+        <div class="rango-lim"><span>${dinero(piso)}</span><span>${dinero(tope)}</span></div>
+      </div>
+      <div class="lat-sec">
+        <span class="lat-t">Mostrar solo</span>
+        <label class="switch"><input type="checkbox" id="f-varias" ${S.f.soloVarias ? 'checked' : ''}><span>En 2 o más tiendas<small>Para comparar de verdad</small></span></label>
+        <label class="switch"><input type="checkbox" id="f-rebaja" ${S.f.soloRebaja ? 'checked' : ''}><span>Con rebaja<small>La tienda muestra precio anterior</small></span></label>
+        <label class="switch"><input type="checkbox" id="f-agotados" ${S.f.agotados ? 'checked' : ''}><span>Incluir agotados<small>Productos sin existencias</small></span></label>
+        ${filtrosActivos() || S.f.cat !== 'Todas' ? '<button type="button" class="limpiar" data-action="limpiar-filtros">Quitar todos los filtros</button>' : ''}
+      </div>
+    </aside>`;
   }
 
   function tarjeta(g) {
     const m = mejor(g);
     const ts = tiendasDe(g);
     const d = disponibles(g);
-    const ahorro = d.length > 1 ? Math.max(...d.map((o) => o.precio)) - m.precio : 0;
+    const max = d.length ? Math.max(...d.map((o) => o.precio)) : 0;
+    const ahorro = d.length > 1 ? max - m.precio : 0;
     const rebaja = m && m.antes && m.antes > m.precio ? Math.round((1 - m.precio / m.antes) * 100) : 0;
+    const pu = porUnidad(g);
     const enLista = S.lista.some((x) => x.id === g.id), enCmp = S.comparar.some((x) => x.id === g.id);
     return `
       <article class="card real">
         <div class="foto">${foto(g.imagen)}
           <div class="badges">
-            ${ts.length > 1 ? `<span class="badge b-rosa">En ${ts.length} tiendas</span>` : ''}
+            ${ts.length > 1 ? `<span class="badge b-rosa">${ts.length} tiendas</span>` : ''}
             ${rebaja >= 3 ? `<span class="badge b-bueno">-${rebaja}%</span>` : ''}
             ${!m ? '<span class="badge b-normal">Agotado</span>' : ''}
           </div>
@@ -347,11 +453,13 @@
           <p class="marca">${esc(g.marca || g.categoria || '')}</p>
           <h3><button type="button" data-action="ver" data-ids="${esc(idsDe(g).join(','))}" data-g="${esc(g.id)}">${esc(g.nombre)}</button></h3>
         </div>
-        <div style="display:grid;gap:9px;align-content:start">
+        <div style="display:grid;gap:8px;align-content:start">
           ${m ? `<span class="tag"><small>${ts.length > 1 ? 'Desde' : 'Precio'}</small><strong>${dinero(m.precio)}</strong></span>
-          <p class="donde">en <b>${esc(tiendaNombre(m.tienda))}</b>${ts.length > 1 ? ` · ${ts.length} tiendas` : ''}</p>` : '<p class="donde">Agotado en todas las tiendas</p>'}
+          <p class="donde">en <b>${esc(tiendaNombre(m.tienda))}</b></p>` : '<p class="donde">Agotado en todas las tiendas</p>'}
+          ${pu ? `<p class="por-unidad"><b>${dinero(pu.valor)}</b> por ${pu.unidad}</p>` : ''}
+          ${ts.length > 1 ? `<div class="tiendas-mini">${ts.slice(0, 4).map((t) => `<span class="${t === m.tienda ? 'mejor' : ''}">${esc(tiendaNombre(t))}</span>`).join('')}${ts.length > 4 ? `<span>+${ts.length - 4}</span>` : ''}</div>` : ''}
         </div>
-        ${ahorro > 0 ? `<p class="ahorro">${I.chispa}Ahorrás ${dinero(ahorro)} comparando</p>` : '<p class="ahorro" aria-hidden="true"></p>'}
+        ${ahorro > 0 ? `<div class="rango"><p class="ahorro" style="margin:0">${I.chispa}Ahorrás ${dinero(ahorro)}</p><div class="rango-barra" aria-hidden="true"><i style="left:0%"></i></div><small><span>${dineroCorto(m.precio)}</span><span>${dineroCorto(max)}</span></small></div>` : '<p class="ahorro" aria-hidden="true"></p>'}
         <div class="card-actions">
           <button type="button" class="mini" data-action="lista" data-g="${esc(g.id)}" aria-pressed="${enLista}">${I.corazon}${enLista ? 'Guardado' : 'Guardar'}</button>
           <button type="button" class="mini" data-action="comparar" data-g="${esc(g.id)}" aria-pressed="${enCmp}">${I.cmp}Comparar</button>
@@ -425,6 +533,7 @@
         : D.cargando ? '<div class="momento m-registrando"><span class="dial" aria-hidden="true">…</span><strong>Revisando el historial</strong><p>Un momento.</p></div>'
         : D.sinDB ? '<div class="momento m-registrando"><span class="dial" aria-hidden="true">…</span><strong>Historial desactivado</strong><p>Conectá la base de datos (Supabase) para guardar el historial de precios.</p></div>' : ''}
 
+      ${barrasComparativas(g)}
       <div class="det-grid">
         <section class="bloque span2" aria-labelledby="t-precios">
           <div class="bloque-head">
@@ -464,6 +573,18 @@
         <div class="sec-head"><h2 id="t-similares">También en <em>${esc(g.categoria)}</em></h2></div>
         <div class="minis">${similares.map((x) => { const mm = mejor(x); return `<button type="button" class="mini-card" data-action="ver" data-ids="${esc(idsDe(x).join(','))}" data-g="${esc(x.id)}">${img(x.imagen)}<b>${esc(x.nombre)}</b><span>${mm ? `<strong>${dinero(mm.precio)}</strong> en ${esc(tiendaNombre(mm.tienda))}` : 'Agotado'}</span></button>`; }).join('')}</div>
       </section>` : ''}`;
+  }
+
+  function barrasComparativas(g) {
+    const porTienda = new Map();
+    for (const o of disponibles(g)) if (!porTienda.has(o.tienda) || o.precio < porTienda.get(o.tienda)) porTienda.set(o.tienda, o.precio);
+    const filas = [...porTienda.entries()].sort((a, b) => a[1] - b[1]);
+    if (filas.length < 2) return '';
+    const max = filas[filas.length - 1][1], min = filas[0][1];
+    return `<section class="bloque" aria-labelledby="t-barras" style="margin-bottom:16px">
+      <div class="bloque-head"><div><h2 id="t-barras">¿Cuánto cobra cada tienda?</h2><p class="sub">Entre la más barata y la más cara hay ${dinero(max - min)} de diferencia.</p></div></div>
+      <div class="barras">${filas.map(([t, p], i) => `<div class="barra-fila ${i === 0 ? 'mejor' : ''}"><b>${esc(tiendaNombre(t))}</b><div class="barra-pista"><i style="width:${Math.max(6, (p / max) * 100).toFixed(1)}%"></i></div><span>${dinero(p)}${i ? `<small>+${dinero(p - min)}</small>` : ''}</span></div>`).join('')}</div>
+    </section>`;
   }
 
   function avisoOferta(o) {
@@ -585,6 +706,118 @@
     hit.addEventListener('pointerleave', () => { tip.hidden = true; cur.setAttribute('visibility', 'hidden'); });
   }
 
+  // ---------- Vista: ofertas de la semana ----------
+  async function cargarOfertas() {
+    S.ofertas = { cargando: true, datos: null, error: null, tab: S.ofertas?.tab || 'bajaron', rubro: 'Todos' };
+    render();
+    try { S.ofertas = { ...S.ofertas, cargando: false, datos: await api('/ofertas') }; }
+    catch (e) { S.ofertas = { ...S.ofertas, cargando: false, error: e }; }
+    if (S.vista === 'ofertas') render();
+  }
+
+  function vistaOfertas() {
+    const O = S.ofertas || { cargando: true };
+    const hoy = new Date(), hace7 = new Date(Date.now() - 7 * 864e5);
+    const rango = `${hace7.getDate()} ${MESES[hace7.getMonth()]} – ${hoy.getDate()} ${MESES[hoy.getMonth()]}`;
+    const cab = `<section class="of-head">
+      <button type="button" class="volver" data-action="inicio" style="padding:0">← Inicio</button>
+      <span class="ceja"><i>${esc(rango.toUpperCase())}</i>Se actualiza todos los días</span>
+      <h1>Ofertas de <em>la semana</em></h1>
+      <p>Productos que <b>de verdad</b> bajaron de precio en los últimos 7 días según nuestro historial, y rebajas que anuncian las tiendas sin descuentos inflados.</p>
+      <div class="of-acciones">
+        <a class="btn primario" href="https://wa.me/?text=${encodeURIComponent(textoCompartirOfertas())}" target="_blank" rel="noopener">${I.compartir}Compartir por WhatsApp</a>
+        <button type="button" class="btn" data-action="copiar-ofertas">Copiar enlace</button>
+      </div>
+    </section>`;
+    if (O.cargando) return cab + `<div class="of-grid">${Array.from({ length: 8 }, () => '<div class="esqueleto" aria-hidden="true"><i></i><i></i><i></i><i></i></div>').join('')}</div>`;
+    if (O.error) return cab + `<div class="aviso-caja"><b>No pudimos cargar las ofertas</b>${esc(O.error.message)}<br><button type="button" class="btn primario" data-action="ir" data-ver="ofertas">Intentar de nuevo</button></div>`;
+    const d = O.datos || { bajaron: [], rebajas: [] };
+    const lista = O.tab === 'bajaron' ? d.bajaron : d.rebajas;
+    const rubros = ['Todos', ...new Set([...d.bajaron, ...d.rebajas].map((o) => o.rubro).filter(Boolean))];
+    const filtrada = lista.filter((o) => O.rubro === 'Todos' || o.rubro === O.rubro);
+    const vacio = O.tab === 'bajaron'
+      ? '<b>Todavía no hay bajas registradas esta semana</b>Para saber si un precio bajó necesitamos su historial de al menos 7 días. Cuanto más se usa la página, más productos seguimos.'
+      : '<b>No hay rebajas anunciadas ahora</b>Volvé mañana: revisamos los precios cada 6 horas.';
+    return cab + `
+      <div class="res-barra">
+        <div class="of-tabs" role="tablist" aria-label="Tipo de oferta">
+          <button type="button" role="tab" data-action="of-tab" data-t="bajaron" aria-selected="${O.tab === 'bajaron'}">Bajaron esta semana (${d.bajaron.length})</button>
+          <button type="button" role="tab" data-action="of-tab" data-t="rebajas" aria-selected="${O.tab === 'rebajas'}">Rebajas anunciadas (${d.rebajas.length})</button>
+        </div>
+        ${rubros.length > 2 ? `<div class="chips" role="group" aria-label="Rubro">${rubros.map((r) => `<button type="button" class="chip suave" data-action="of-rubro" data-r="${esc(r)}" aria-pressed="${O.rubro === r}">${esc(r)}</button>`).join('')}</div>` : ''}
+      </div>
+      ${filtrada.length ? `<div class="of-grid">${filtrada.map((o) => {
+        const ref = O.tab === 'bajaron' ? o.precioSemanaPasada : o.antes;
+        const pct = Math.round((1 - o.precio / ref) * 100);
+        return `<button type="button" class="of-card" data-action="ver" data-ids="${esc(o.id)}">
+          <span class="of-pct">-${pct}%</span>
+          <span class="foto">${img(o.imagen)}</span>
+          <b>${esc(o.nombre)}</b>
+          <span class="of-tienda">${esc(tiendaNombre(o.tienda))}</span>
+          <span class="of-precio"><strong>${dinero(o.precio)}</strong><s>${dinero(ref)}</s></span>
+          <span class="of-nota">${O.tab === 'bajaron' ? `Bajó ${dinero(ref - o.precio)} en 7 días` : o.confirmada ? 'Rebaja confirmada con el historial' : 'Rebaja según la tienda'}</span>
+        </button>`;
+      }).join('')}</div>` : `<div class="aviso-caja" style="margin-top:16px">${vacio}</div>`}`;
+  }
+
+  function textoCompartirOfertas() {
+    const d = S.ofertas?.datos;
+    const top = d ? [...d.bajaron, ...d.rebajas].slice(0, 5) : [];
+    const url = location.origin + location.pathname + '?ver=ofertas';
+    return `🛍️ Ofertas de la semana en PinkyPrecios\n${top.map((o) => `• ${o.nombre}: ${dinero(o.precio)} en ${tiendaNombre(o.tienda)}`).join('\n')}${top.length ? '\n' : ''}Mirá todas aquí: ${url}`;
+  }
+
+  // ---------- Vista: contacto ----------
+  const ICANAL = {
+    wa: '<svg viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.5-4A8 8 0 1 1 20 11.5z"/><path d="M9 8.5c0 3 2.5 6 5.5 6.5l1-1.5-2-1-1 1c-1-.5-2-1.5-2.5-2.5l1-1-1-2z"/></svg>',
+    mail: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>'
+  };
+  function vistaContacto() {
+    const wa = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hola, les escribo desde PinkyPrecios: ')}`;
+    return `
+      <section class="con-head">
+        <button type="button" class="volver" data-action="inicio" style="padding:0">← Inicio</button>
+        <h1>Hablemos <em>💗</em></h1>
+        <p>¿Encontraste un precio que no cuadra, querés que agreguemos una tienda o tenés una idea? Escribinos por el medio que te quede más cómodo.</p>
+      </section>
+      <div class="con-grid">
+        <div class="con-canales">
+          <div class="canal"><span class="c-ico bg-menta">${ICANAL.wa}</span><b>WhatsApp</b><span class="c-dato">${esc(CFG.whatsappVisible)}</span>
+            <div class="c-acc"><a class="btn primario" href="${esc(wa)}" target="_blank" rel="noopener">Escribir por WhatsApp</a><button type="button" class="btn" data-action="copiar" data-texto="${esc(CFG.whatsappVisible)}">Copiar número</button></div></div>
+          <div class="canal"><span class="c-ico bg-rosa">${ICANAL.mail}</span><b>Correo</b><span class="c-dato">${esc(CFG.correo)}</span>
+            <div class="c-acc"><a class="btn" href="mailto:${esc(CFG.correo)}?subject=${encodeURIComponent('Contacto PinkyPrecios')}">Abrir correo</a><button type="button" class="btn" data-action="copiar" data-texto="${esc(CFG.correo)}">Copiar correo</button></div></div>
+          <div class="firma"><img src="img/logo.png" alt=""><span><b>${esc(CFG.autora)}</b>Creadora de PinkyPrecios · Proyecto final de programación, Costa Rica</span></div>
+        </div>
+        <form class="form-contacto" id="form-contacto" novalidate>
+          <h2 style="font-size:24px">Mandanos un mensaje</h2>
+          <div class="dos">
+            <label class="campo" for="c-nombre">Tu nombre<input id="c-nombre" name="nombre" autocomplete="name" maxlength="80"></label>
+            <label class="campo" for="c-correo">Tu correo (para responderte)<input id="c-correo" name="correo" type="email" autocomplete="email" maxlength="120"></label>
+          </div>
+          <label class="campo" for="c-asunto">Asunto<input id="c-asunto" name="asunto" maxlength="120" placeholder="Por ejemplo: agregar una tienda"></label>
+          <label class="campo" for="c-mensaje">Mensaje<textarea id="c-mensaje" name="mensaje" maxlength="2000" required></textarea></label>
+          <label class="trampa" aria-hidden="true">No llenar<input name="sitio" tabindex="-1" autocomplete="off"></label>
+          <p class="error" id="c-error" hidden></p>
+          <p class="ok-msg" id="c-ok" hidden>¡Gracias! Recibimos tu mensaje y te respondemos pronto.</p>
+          <button type="submit" class="btn primario">Enviar mensaje</button>
+        </form>
+      </div>
+      <section class="seccion" aria-labelledby="t-faq" style="margin-top:26px">
+        <div class="sec-head"><h2 id="t-faq">Preguntas <em>frecuentes</em></h2></div>
+        <div class="faq">
+          ${FAQ.map(([p, r]) => `<details><summary>${esc(p)}</summary><p>${esc(r)}</p></details>`).join('')}
+        </div>
+      </section>`;
+  }
+  const FAQ = [
+    ['¿Los precios son reales?', 'Sí. Cada búsqueda consulta en ese momento los sitios públicos de las tiendas. También guardamos el historial de cada precio y lo revisamos cada 6 horas.'],
+    ['¿Las tiendas pagan por aparecer?', 'No. Ninguna tienda paga para salir primero: los resultados se ordenan por parecido con tu búsqueda o por precio.'],
+    ['¿Qué es un descuento inflado?', 'Cuando una tienda muestra un precio “antes” más alto, pero según nuestro historial el producto ya costaba lo mismo o menos hace más de 25 días.'],
+    ['¿Para qué sirve crear una cuenta?', 'Tu lista, tus alertas y tus búsquedas se guardan en la nube y las ves igual en el celular y en la compu.'],
+    ['¿Por qué no aparece una tienda?', 'Solo mostramos tiendas que publican sus precios y permiten que un robot los lea. Las demás quedan “en evaluación” en el panel de Tiendas.'],
+    ['¿Puedo instalarla como app?', 'Sí. En el celular abrí el menú del navegador y tocá “Agregar a pantalla de inicio”.']
+  ];
+
   // ---------- Paneles ----------
   const cabeceraPanel = (titulo, sub) => `<div class="panel-head"><div><h2 id="panel-title">${esc(titulo)}</h2><p class="sub">${esc(sub)}</p></div><button type="button" class="cerrar" data-action="cerrar" aria-label="Cerrar">${I.x}</button></div>`;
 
@@ -605,7 +838,44 @@
       <div class="resumen">
         <div class="resumen-fila mejor"><span>Comprando cada producto donde está más barato<small>${Object.entries(porTienda).map(([t, n]) => `${tiendaNombre(t)} (${n})`).join(', ')}</small></span><strong>${dinero(total)}</strong></div>
         <button type="button" class="btn" data-action="refrescar-lista" id="btn-refrescar">Actualizar precios de mi lista</button>
-      </div>`;
+      </div>
+      <div class="sec-head" style="margin:4px 0 0"><h2 style="font-size:20px">¿Dónde sale más <em>barata</em> tu lista?</h2><p>Si querés comprar todo en un solo lugar.</p></div>
+      ${S.canasta ? (S.canasta.cargando ? '<p class="sub">Revisando cada tienda…</p>' : canastaHtml(S.canasta)) : `<button type="button" class="btn primario" data-action="canasta">Comparar mi lista por tienda</button>`}`;
+  }
+
+  async function calcularCanasta() {
+    S.canasta = { cargando: true };
+    render();
+    const items = [];
+    for (const x of S.lista) {
+      try { const r = await api('/producto?ids=' + encodeURIComponent(x.ids.join(','))); if (r.grupo) items.push({ x, g: r.grupo }); else items.push({ x, g: S.grupos.get(x.id) || null }); }
+      catch (e) { items.push({ x, g: S.grupos.get(x.id) || null }); }
+    }
+    const tiendas = new Map();
+    for (const { g } of items) {
+      if (!g) continue;
+      const vistos = new Set();
+      for (const o of g.ofertas.filter((o) => o.disponible).sort((a, b) => a.precio - b.precio)) {
+        if (vistos.has(o.tienda)) continue;
+        vistos.add(o.tienda);
+        const t = tiendas.get(o.tienda) || { tienda: o.tienda, total: 0, tiene: 0 };
+        t.total += o.precio; t.tiene++;
+        tiendas.set(o.tienda, t);
+      }
+    }
+    const n = items.length;
+    const filas = [...tiendas.values()].sort((a, b) => (b.tiene === n) - (a.tiene === n) || b.tiene - a.tiene || a.total - b.total);
+    S.canasta = { filas, n, fecha: new Date().toISOString() };
+    if (S.panel === 'lista') render();
+  }
+  function canastaHtml(c) {
+    if (!c.filas.length) return '<p class="sub">No encontramos precios actuales para tu lista.</p>';
+    const completas = c.filas.filter((f) => f.tiene === c.n);
+    return `<div class="canasta">${c.filas.slice(0, 8).map((f, i) => `
+      <div class="c-fila ${f.tiene === c.n && i === 0 ? 'mejor' : ''}"><b>${esc(tiendaNombre(f.tienda))}</b><strong>${f.tiene === c.n ? dinero(f.total) : '—'}</strong>
+      <small>${f.tiene === c.n ? (i === 0 ? 'La más barata con todo tu lista' : `+${dinero(f.total - completas[0].total)} que la más barata`) : `Tiene ${f.tiene} de ${c.n} productos (${dinero(f.total)})`}</small></div>`).join('')}</div>
+      ${completas.length ? '' : '<p class="nota">Ninguna tienda tiene todos los productos de tu lista.</p>'}
+      <button type="button" class="limpiar" data-action="canasta">Volver a calcular</button>`;
   }
 
   function panelAlertas() {
@@ -686,6 +956,12 @@
       app.innerHTML = vistaDetalle();
       document.title = (S.detalle.grupo?.nombre ? S.detalle.grupo.nombre + ' · ' : '') + CFG.nombre;
       dibujarGrafico();
+    } else if (S.vista === 'ofertas') {
+      app.innerHTML = vistaOfertas();
+      document.title = 'Ofertas de la semana · ' + CFG.nombre;
+    } else if (S.vista === 'contacto') {
+      app.innerHTML = vistaContacto();
+      document.title = 'Contacto · ' + CFG.nombre;
     } else if (S.vista === 'resultados' && S.busqueda) {
       app.innerHTML = vistaResultados();
       document.title = `${S.busqueda.q} · ${CFG.nombre}`;
@@ -694,8 +970,18 @@
       document.title = CFG.nombre;
     }
     renderBarra();
+    renderCatnav();
     renderTray();
     renderPanel();
+  }
+
+  function renderCatnav() {
+    const q = S.vista === 'resultados' ? norm(S.busqueda?.q) : '';
+    $('#catnav').innerHTML = `<button type="button" class="destacado" data-action="ir" data-ver="ofertas" aria-current="${S.vista === 'ofertas'}">${I.chispa}Ofertas de la semana</button>`
+      + CATEGORIAS.map((c) => `<button type="button" data-action="buscar" data-q="${esc(c.q)}" aria-current="${q === norm(c.q)}">${c.icono}${esc(c.nombre)}</button>`).join('')
+      + `<button type="button" data-action="ir" data-ver="contacto" aria-current="${S.vista === 'contacto'}">${ICANAL.mail}Contacto</button>`;
+    const pie = $('#pie-categorias');
+    if (pie && !pie.childElementCount) pie.innerHTML = CATEGORIAS.slice(0, 7).map((c) => `<button type="button" data-action="buscar" data-q="${esc(c.q)}">${esc(c.nombre)}</button>`).join('');
   }
 
   function renderBarra() {
@@ -710,10 +996,16 @@
     bt.innerHTML = S.tema === 'dark' ? I.luna : S.tema === 'light' ? I.sol : I.auto;
     bt.setAttribute('aria-label', 'Tema: ' + nombres[S.tema] + '. Tocá para cambiar.');
     bt.title = 'Tema ' + nombres[S.tema];
+    const av = $('#avatar'), lbl = $('#cuenta-lbl');
+    if (av && lbl) {
+      if (C.usuario) { av.className = 'avatar'; av.textContent = inicial(); lbl.textContent = nombreUsuario() || 'Mi cuenta'; }
+      else { av.className = 'avatar sin-sesion'; av.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>'; lbl.textContent = 'Ingresar'; }
+    }
   }
 
   function renderTray() {
     const t = $('#tray');
+    document.body.classList.toggle('con-bandeja', S.comparar.length > 0 && S.panel !== 'comparar');
     if (!S.comparar.length || S.panel === 'comparar') { t.hidden = true; return; }
     t.innerHTML = `<p><b>${S.comparar.length}/3</b> · ${esc(S.comparar.map((g) => g.nombre).join(', '))}</p>
       <button type="button" class="btn primario" data-action="panel" data-p="comparar" ${S.comparar.length < 2 ? 'disabled' : ''}>${S.comparar.length < 2 ? 'Elegí 1 más' : 'Comparar'}</button>
@@ -722,14 +1014,21 @@
   }
 
   let ultimoFoco = null;
-  function renderPanel() {
+  let panelPintado = null;
+  function renderPanel(forzar = false) {
     const pn = $('#panel'), ov = $('#overlay');
-    if (!S.panel) { pn.hidden = true; ov.hidden = true; return; }
-    pn.classList.toggle('ancho', S.panel === 'comparar');
-    pn.innerHTML = { lista: panelLista, alertas: panelAlertas, comparar: panelComparar, tiendas: panelTiendas }[S.panel]();
+    document.body.classList.toggle('panel-abierto', Boolean(S.panel));
+    if (!S.panel) { pn.hidden = true; ov.hidden = true; panelPintado = null; return; }
     const abierto = !pn.hidden;
+    // Los paneles con formularios no se repintan solos (para no borrar lo que la persona está escribiendo)
+    if (!forzar && abierto && panelPintado === S.panel && ['cuenta', 'asistente'].includes(S.panel)) return;
+    pn.classList.toggle('ancho', S.panel === 'comparar');
+    pn.classList.toggle('chat-panel', S.panel === 'asistente');
+    pn.innerHTML = { lista: panelLista, alertas: panelAlertas, comparar: panelComparar, tiendas: panelTiendas, cuenta: panelCuenta, asistente: panelAsistente }[S.panel]();
+    panelPintado = S.panel;
     pn.hidden = false; ov.hidden = false;
-    if (!abierto) $('.cerrar', pn)?.focus();
+    if (S.panel === 'asistente') { pintarChat(); if (!abierto || forzar) $('#chat-in')?.focus(); }
+    else if (!abierto) $('.cerrar', pn)?.focus();
   }
 
   let toastT;
@@ -832,11 +1131,21 @@
       case 'lista': alternarLista(b.dataset.g); render(); break;
       case 'quitar-lista': S.lista = S.lista.filter((x) => x.id !== b.dataset.g); guardar.set('lista', S.lista); render(); break;
       case 'refrescar-lista': refrescarLista(); break;
+      case 'canasta': calcularCanasta(); break;
+      case 'ir': ev.preventDefault(); S.panel = null; irA({ ver: b.dataset.ver }); break;
+      case 'of-tab': S.ofertas.tab = b.dataset.t; render(); break;
+      case 'of-rubro': S.ofertas.rubro = b.dataset.r; render(); break;
+      case 'copiar-ofertas': copiar(location.origin + location.pathname + '?ver=ofertas', 'Enlace copiado'); break;
+      case 'copiar': copiar(b.dataset.texto, 'Copiado'); break;
+      case 'cuenta-modo': C.modo = b.dataset.m; C.error = ''; C.aviso = ''; renderPanel(true); break;
+      case 'cerrar-sesion': C.cliente?.auth.signOut().then(() => aviso('Cerraste sesión. Tu lista sigue en este navegador.')); break;
+      case 'chat-chip': { const c = b.dataset.c; if (ACCIONES_CHIP[c]) { agregarMensaje('user', c); ACCIONES_CHIP[c](); } else preguntar(c); break; }
+      case 'instalar': instalarApp(); break;
       case 'comparar': alternarComparar(b.dataset.g); render(); break;
       case 'limpiar-cmp': S.comparar = []; render(); break;
       case 'compartir': compartir(); break;
       case 'borrar-vistos': S.vistos = []; guardar.set('vistos', []); render(); break;
-      case 'panel': ultimoFoco = b; S.panel = b.dataset.p; render(); break;
+      case 'panel': ultimoFoco = b; if (b.dataset.p === 'cuenta') { C.error = ''; C.aviso = ''; } S.panel = b.dataset.p; render(); break;
       case 'cerrar': cerrarPanel(); break;
       case 'quitar-alerta': S.alertas = S.alertas.filter((x) => x.id !== b.dataset.id); guardar.set('alertas', S.alertas); aviso('Alerta eliminada'); render(); break;
     }
@@ -849,6 +1158,8 @@
     if (t.id === 'f-rebaja') { S.f.soloRebaja = t.checked; render(); }
     if (t.id === 'f-agotados') { S.f.agotados = t.checked; render(); }
     if (t.id === 'precio-max') render();
+    if (t.dataset.filtro === 'tienda') { S.f.tiendas = t.checked ? [...S.f.tiendas, t.value] : S.f.tiendas.filter((x) => x !== t.value); render(); }
+    if (t.dataset.filtro === 'cat') { S.f.cat = t.value; render(); }
   });
 
   document.addEventListener('input', (ev) => {
@@ -869,6 +1180,10 @@
       document.activeElement?.blur?.();
       return;
     }
+    if (f.id === 'form-cuenta') { ev.preventDefault(); enviarCuenta(f); return; }
+    if (f.id === 'form-nueva') { ev.preventDefault(); guardarNuevaClave(f); return; }
+    if (f.id === 'form-chat') { ev.preventDefault(); const i = $('#chat-in'); const t = i.value; i.value = ''; preguntar(t); return; }
+    if (f.id === 'form-contacto') { ev.preventDefault(); enviarContactoForm(f); return; }
     if (f.id !== 'form-alerta') return;
     ev.preventDefault();
     const g = S.detalle?.grupo; if (!g) return;
@@ -900,6 +1215,365 @@
     dibujarGrafico();
   });
 
+  // ---------- Sugerencias mientras se escribe ----------
+  const IRELOJ = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+  const ITEND = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>';
+  const ILUPA = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+  function opcionesSugerir(texto) {
+    const t = norm(texto).trim();
+    const coincide = (x) => !t || norm(x).includes(t);
+    const rec = recientes().filter(coincide).slice(0, 4).map((x) => ({ q: x, tipo: 'reciente' }));
+    const pop = (S.inicio?.populares || []).map((p) => p.termino).filter((x) => coincide(x) && !rec.some((r) => norm(r.q) === norm(x))).slice(0, 5).map((x) => ({ q: x, tipo: 'popular' }));
+    const cats = CATEGORIAS.filter((c) => t && (norm(c.nombre).includes(t) || norm(c.q).includes(t))).slice(0, 3).map((c) => ({ q: c.q, tipo: 'categoria', nombre: c.nombre }));
+    const lista = [...rec, ...pop, ...cats];
+    if (t && !lista.some((x) => norm(x.q) === t)) lista.unshift({ q: texto.trim(), tipo: 'buscar' });
+    return lista.slice(0, 9);
+  }
+  function pintarSugerir(input) {
+    const caja = document.getElementById(input.getAttribute('aria-controls'));
+    if (!caja) return;
+    const ops = opcionesSugerir(input.value);
+    if (!ops.length) { cerrarSugerir(input); return; }
+    const titulo = { reciente: 'Tus búsquedas', popular: 'Lo más buscado', categoria: 'Categorías', buscar: '' };
+    let ultimo = '';
+    caja.innerHTML = ops.map((o, i) => {
+      const t = o.tipo !== ultimo && titulo[o.tipo] ? `<span class="sg-t">${titulo[o.tipo]}</span>` : '';
+      ultimo = o.tipo;
+      const ico = o.tipo === 'reciente' ? IRELOJ : o.tipo === 'popular' ? ITEND : ILUPA;
+      return `${t}<button type="button" role="option" id="${caja.id}-${i}" data-sugerido="${esc(o.q)}" aria-selected="false">${ico}<span>${o.tipo === 'buscar' ? `Buscar “${esc(o.q)}”` : esc(o.nombre || o.q)}</span>${o.tipo === 'categoria' ? '<small>categoría</small>' : ''}</button>`;
+    }).join('');
+    caja.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+  }
+  function cerrarSugerir(input) {
+    const caja = input && document.getElementById(input.getAttribute('aria-controls'));
+    if (caja) { caja.hidden = true; caja.innerHTML = ''; }
+    if (input) { input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); }
+  }
+  function moverSugerir(input, paso) {
+    const caja = document.getElementById(input.getAttribute('aria-controls'));
+    if (!caja || caja.hidden) return false;
+    const ops = [...caja.querySelectorAll('[role=option]')];
+    if (!ops.length) return false;
+    let i = ops.findIndex((o) => o.getAttribute('aria-selected') === 'true');
+    ops.forEach((o) => o.setAttribute('aria-selected', 'false'));
+    i = (i + paso + ops.length) % ops.length;
+    ops[i].setAttribute('aria-selected', 'true');
+    input.setAttribute('aria-activedescendant', ops[i].id);
+    return true;
+  }
+  const inputBusqueda = (el) => el && (el.id === 'q' || el.id === 'q-hero');
+  document.addEventListener('input', (ev) => { if (inputBusqueda(ev.target)) pintarSugerir(ev.target); });
+  document.addEventListener('focusin', (ev) => { if (inputBusqueda(ev.target)) pintarSugerir(ev.target); });
+  document.addEventListener('keydown', (ev) => {
+    const el = ev.target;
+    if (!inputBusqueda(el)) return;
+    if (ev.key === 'ArrowDown' && moverSugerir(el, 1)) ev.preventDefault();
+    else if (ev.key === 'ArrowUp' && moverSugerir(el, -1)) ev.preventDefault();
+    else if (ev.key === 'Escape') cerrarSugerir(el);
+    else if (ev.key === 'Enter') {
+      const sel = document.getElementById(el.getAttribute('aria-activedescendant') || '');
+      if (sel && sel.dataset.sugerido) { ev.preventDefault(); el.value = sel.dataset.sugerido; cerrarSugerir(el); S.panel = null; irA({ q: sel.dataset.sugerido }); el.blur(); }
+    }
+  });
+  document.addEventListener('mousedown', (ev) => {
+    const op = ev.target.closest('[data-sugerido]');
+    if (op) {
+      ev.preventDefault();
+      const input = op.closest('form').querySelector('input');
+      input.value = op.dataset.sugerido; cerrarSugerir(input); S.panel = null; irA({ q: op.dataset.sugerido }); input.blur();
+      return;
+    }
+    for (const id of ['q', 'q-hero']) { const i = document.getElementById(id); if (i && !ev.target.closest('form')?.contains(i)) cerrarSugerir(i); }
+  });
+  document.addEventListener('focusout', (ev) => { if (inputBusqueda(ev.target)) setTimeout(() => { if (document.activeElement !== ev.target) cerrarSugerir(ev.target); }, 150); });
+
+  // ---------- Cuentas de usuario (Supabase Auth) ----------
+  const C = { cliente: null, usuario: null, modo: 'ingresar', error: '', aviso: '', cargando: false, sincronizado: null, listo: false, campos: {} };
+  const SINCRONIZA = ['lista', 'alertas', 'vistos', 'recientes'];
+  const cuentasActivas = () => Boolean(CFG.supabaseUrl && CFG.supabaseClavePublica);
+
+  function cargarScript(src) {
+    return new Promise((ok, mal) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = mal; document.head.appendChild(s); });
+  }
+
+  async function iniciarCuentas() {
+    if (!cuentasActivas()) return;
+    try {
+      await cargarScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js');
+      C.cliente = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseClavePublica, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } });
+      C.cliente.auth.onAuthStateChange((evento, sesion) => {
+        if (evento === 'PASSWORD_RECOVERY') { C.modo = 'nueva'; S.panel = 'cuenta'; renderPanel(true); }
+        if (sesion?.user && (!C.usuario || C.usuario.id !== sesion.user.id)) setTimeout(() => alIngresar(sesion.user), 0);
+        if (evento === 'SIGNED_OUT') { C.usuario = null; renderBarra(); if (S.panel === 'cuenta') renderPanel(true); }
+      });
+      const { data } = await C.cliente.auth.getSession();
+      if (data.session?.user) await alIngresar(data.session.user);
+    } catch (e) { console.warn('No se pudieron cargar las cuentas', e); }
+    C.listo = true;
+    renderBarra();
+  }
+
+  const unirPorId = (a, b, max) => { const m = new Map(); for (const x of [...(a || []), ...(b || [])]) if (x && x.id && !m.has(x.id)) m.set(x.id, x); return [...m.values()].slice(0, max); };
+  const unirTextos = (a, b, max) => [...new Set([...(a || []), ...(b || [])])].slice(0, max);
+
+  async function alIngresar(usuario) {
+    C.usuario = usuario;
+    renderBarra();
+    try {
+      const { data, error } = await C.cliente.from('datos_usuario').select('*').eq('user_id', usuario.id).maybeSingle();
+      if (error) throw error;
+      if (data) {
+        S.lista = unirPorId(S.lista, data.lista, 200);
+        S.alertas = unirPorId(S.alertas, data.alertas, 100);
+        S.vistos = unirPorId(S.vistos, data.vistos, 12);
+        guardarLocal('lista', S.lista); guardarLocal('alertas', S.alertas); guardarLocal('vistos', S.vistos);
+        guardarLocal('recientes', unirTextos(recientes(), data.recientes, 8));
+      }
+      await subirDatos();
+      if (data && (data.lista?.length || data.alertas?.length)) aviso(`¡Hola${nombreUsuario() ? ', ' + nombreUsuario() : ''}! Trajimos tu lista y tus alertas`);
+    } catch (e) { console.warn('No se pudo sincronizar', e); C.error = 'No pudimos sincronizar tus datos. Revisá que corriste la actualización de la base de datos.'; }
+    render();
+    if (S.panel === 'cuenta') renderPanel(true);
+  }
+
+  let temporizadorSubida = null;
+  function programarSubida() {
+    if (!C.usuario || !C.cliente) return;
+    clearTimeout(temporizadorSubida);
+    temporizadorSubida = setTimeout(subirDatos, 1200);
+  }
+  async function subirDatos() {
+    if (!C.usuario || !C.cliente) return;
+    const { error } = await C.cliente.from('datos_usuario').upsert({
+      user_id: C.usuario.id, lista: S.lista, alertas: S.alertas, vistos: S.vistos, recientes: recientes(), actualizado: new Date().toISOString()
+    });
+    if (!error) C.sincronizado = new Date().toISOString();
+  }
+
+  const nombreUsuario = () => (C.usuario?.user_metadata?.nombre || '').split(' ')[0];
+  const inicial = () => (C.usuario?.user_metadata?.nombre || C.usuario?.email || '?').trim().charAt(0).toUpperCase();
+
+  function panelCuenta() {
+    if (!cuentasActivas()) return cabeceraPanel('Tu cuenta', '') + '<div class="panel-vacio"><b>Cuentas desactivadas</b><p>Configurá Supabase en config.js para activarlas.</p></div>';
+    if (!C.listo) return cabeceraPanel('Tu cuenta', 'Cargando…') + '<div class="panel-vacio"><p>Un momento…</p></div>';
+    if (C.modo === 'nueva') return cabeceraPanel('Nueva contraseña', 'Elegí una contraseña nueva para tu cuenta') + `
+      <form class="form-cuenta" id="form-nueva" novalidate>
+        <label class="campo" for="cu-nueva">Contraseña nueva<input id="cu-nueva" name="clave" type="password" autocomplete="new-password" minlength="8" required><span class="ayuda">Mínimo 8 caracteres.</span></label>
+        ${C.error ? `<p class="error">${esc(C.error)}</p>` : ''}
+        <button type="submit" class="btn primario" ${C.cargando ? 'disabled' : ''}>Guardar contraseña</button>
+      </form>`;
+    if (C.usuario) {
+      const nombre = C.usuario.user_metadata?.nombre || C.usuario.email;
+      return cabeceraPanel('Tu cuenta', C.usuario.email) + `
+        <div class="perfil"><span class="avatar">${esc(inicial())}</span><b>${esc(nombre)}</b><span>${C.sincronizado ? `Sincronizado ${hace(C.sincronizado)}` : 'Sincronizando…'}</span></div>
+        ${C.error ? `<p class="error">${esc(C.error)}</p>` : ''}
+        <div class="cifras" style="margin:0;grid-template-columns:repeat(3,minmax(0,1fr))">
+          <div class="cifra"><strong>${S.lista.length}</strong><span>en tu lista</span></div>
+          <div class="cifra"><strong>${S.alertas.length}</strong><span>alertas</span></div>
+          <div class="cifra"><strong>${S.vistos.length}</strong><span>vistos</span></div>
+        </div>
+        <p class="nota" style="margin:0">Tu lista, tus alertas y tus búsquedas se guardan en tu cuenta. Entrá con el mismo correo en el celular o la compu y vas a ver lo mismo.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" class="btn" data-action="panel" data-p="lista">${I.corazon}Ver mi lista</button>
+          <button type="button" class="btn" data-action="cerrar-sesion">Cerrar sesión</button>
+        </div>`;
+    }
+    const registro = C.modo === 'registro', olvido = C.modo === 'olvido';
+    return cabeceraPanel(registro ? 'Creá tu cuenta' : olvido ? 'Recuperar contraseña' : 'Ingresá a tu cuenta', 'Gratis, solo necesitás un correo') + `
+      ${olvido ? '' : `<div class="cuenta-tabs" role="tablist">
+        <button type="button" role="tab" data-action="cuenta-modo" data-m="ingresar" aria-selected="${!registro}">Ingresar</button>
+        <button type="button" role="tab" data-action="cuenta-modo" data-m="registro" aria-selected="${registro}">Crear cuenta</button>
+      </div>`}
+      <form class="form-cuenta" id="form-cuenta" novalidate>
+        ${registro ? `<label class="campo" for="cu-nombre">Tu nombre<input id="cu-nombre" name="nombre" autocomplete="name" maxlength="60" value="${esc(C.campos.nombre || '')}"></label>` : ''}
+        <label class="campo" for="cu-correo">Correo<input id="cu-correo" name="correo" type="email" autocomplete="email" required value="${esc(C.campos.correo || '')}"></label>
+        ${olvido ? '' : `<label class="campo" for="cu-clave">Contraseña<input id="cu-clave" name="clave" type="password" autocomplete="${registro ? 'new-password' : 'current-password'}" minlength="8" required>${registro ? '<span class="ayuda">Mínimo 8 caracteres.</span>' : ''}</label>`}
+        ${C.error ? `<p class="error">${esc(C.error)}</p>` : ''}
+        ${C.aviso ? `<p class="ok-msg">${esc(C.aviso)}</p>` : ''}
+        <button type="submit" class="btn primario" ${C.cargando ? 'disabled' : ''}>${C.cargando ? 'Un momento…' : registro ? 'Crear mi cuenta' : olvido ? 'Mandarme el enlace' : 'Ingresar'}</button>
+        ${registro ? '' : olvido ? '<button type="button" class="limpiar" data-action="cuenta-modo" data-m="ingresar">Volver a ingresar</button>' : '<button type="button" class="limpiar" data-action="cuenta-modo" data-m="olvido">¿Olvidaste tu contraseña?</button>'}
+      </form>
+      ${olvido ? '' : `<ul class="beneficios">
+        <li>Tu lista y tus alertas en el celular y la compu</li>
+        <li>Tus búsquedas recientes donde sea</li>
+        <li>Sin publicidad ni correos que no pediste</li>
+      </ul>`}`;
+  }
+
+  const MENSAJES_AUTH = {
+    'Invalid login credentials': 'El correo o la contraseña no coinciden.',
+    'Email not confirmed': 'Todavía no confirmaste tu correo. Revisá tu bandeja (y el spam).',
+    'User already registered': 'Ya existe una cuenta con ese correo. Probá ingresar.',
+    'Password should be at least 6 characters': 'La contraseña es muy corta.'
+  };
+  const traducir = (e) => MENSAJES_AUTH[e?.message] || (/rate limit/i.test(e?.message || '') ? 'Hiciste muchos intentos seguidos. Esperá unos minutos.' : 'No se pudo completar. Intentá de nuevo en un momento.');
+
+  async function enviarCuenta(f) {
+    const correo = f.correo.value.trim(), clave = f.clave?.value || '', nombre = f.nombre?.value.trim() || '';
+    C.error = ''; C.aviso = ''; C.campos = { correo, nombre }; // se conservan si hay que volver a mostrar el formulario
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) { C.error = 'Revisá el correo: falta la @ o el dominio.'; return renderPanel(true); }
+    if (C.modo !== 'olvido' && clave.length < 8) { C.error = 'La contraseña debe tener al menos 8 caracteres.'; return renderPanel(true); }
+    C.cargando = true; renderPanel(true);
+    const volver = location.origin + location.pathname;
+    let r;
+    if (C.modo === 'registro') r = await C.cliente.auth.signUp({ email: correo, password: clave, options: { data: { nombre }, emailRedirectTo: volver } });
+    else if (C.modo === 'olvido') r = await C.cliente.auth.resetPasswordForEmail(correo, { redirectTo: volver });
+    else r = await C.cliente.auth.signInWithPassword({ email: correo, password: clave });
+    C.cargando = false;
+    if (r.error) C.error = traducir(r.error);
+    else if (C.modo === 'registro' && !r.data.session) C.aviso = `¡Listo! Te mandamos un correo a ${correo} para confirmar tu cuenta.`;
+    else if (C.modo === 'olvido') C.aviso = 'Si existe una cuenta con ese correo, te llegó un enlace para crear una contraseña nueva.';
+    else { aviso('¡Bienvenida de vuelta! 💗'); C.campos = {}; }
+    renderPanel(true);
+  }
+
+  async function guardarNuevaClave(f) {
+    const clave = f.clave.value;
+    if (clave.length < 8) { C.error = 'La contraseña debe tener al menos 8 caracteres.'; return renderPanel(true); }
+    C.cargando = true; renderPanel(true);
+    const { error } = await C.cliente.auth.updateUser({ password: clave });
+    C.cargando = false;
+    if (error) C.error = traducir(error); else { C.modo = 'ingresar'; C.error = ''; aviso('Contraseña actualizada'); }
+    renderPanel(true);
+  }
+
+  // ---------- Asistente de ayuda ----------
+  // Responde solo: preguntas frecuentes y acciones (buscar, abrir paneles). Si en Netlify hay ANTHROPIC_API_KEY,
+  // las preguntas que no reconoce se las pasa a la IA (Claude) mediante /api/asistente.
+  const CH = { mensajes: [], escribiendo: false, ia: null };
+  const R = (texto, chips = [], accion = null) => ({ texto, chips, accion });
+  const INTENCIONES = [
+    { claves: ['hola', 'buenas', 'buenos dias', 'buenas tardes', 'pura vida', 'hey'], r: () => R(`¡Hola${nombreUsuario() ? ', ' + nombreUsuario() : ''}! Soy Pinky 💗 Te ayudo a usar la página. ¿Qué necesitás?`, ['¿Cómo busco?', 'Ofertas de la semana', '¿Qué es un descuento inflado?']) },
+    { claves: ['como busco', 'como buscar', 'buscar producto', 'como funciona', 'como se usa', 'usar la pagina'], r: () => R('Escribí el producto en el buscador de arriba (por ejemplo “pantalla 55”) y apretá Enter. Buscamos en todas las tiendas a la vez y juntamos el mismo producto. Después podés filtrar por tienda, precio o categoría en la barra de la izquierda.', ['Buscá freidora de aire', 'Ver categorías']) },
+    { claves: ['lista', 'guardar', 'corazon', 'favorito'], r: () => R('Tocá “Guardar” (el corazón) en cualquier producto. En “Mi lista” ves el total y, con “Comparar mi lista por tienda”, en qué tienda sale más barato comprar todo junto.', ['Abrir mi lista']) },
+    { claves: ['alerta', 'avisame', 'avisar', 'notificar', 'baje', 'baja de precio'], r: () => R('Entrá a un producto y usá “Avisame si baja”: ponés tu precio objetivo y, si querés, tu correo. Revisamos los precios cada 6 horas y te avisamos cuando alguna tienda llegue.', ['Ver mis alertas']) },
+    { claves: ['comparar', 'lado a lado', 'comparacion'], r: () => R('Tocá “Comparar” en hasta 3 productos y abajo aparece una barra para verlos lado a lado: precio, tiendas, marca y cuotas.') },
+    { claves: ['historial', 'grafico', 'buen momento', 'cuando comprar', 'esperar'], r: () => R('Cada precio se guarda un día a la vez. Con 7 días de datos te decimos si es buen momento para comprar o mejor esperar, y el gráfico te muestra cómo cambió en cada tienda.') },
+    { claves: ['inflado', 'falso', 'descuento falso', 'engano', 'trampa'], r: () => R('Un descuento inflado es cuando la tienda muestra un precio “antes” más alto, pero según nuestro historial hace más de 25 días ya costaba lo mismo o menos. Lo marcamos en rojo para que no te engañen.') },
+    { claves: ['cuota', 'credito', 'tasa cero', 'meses', 'financiar', 'pagos'], r: () => R('En cada producto, la pestaña “Cuotas” muestra las cuotas que publica cada tienda (por ejemplo 12 meses sin intereses con ciertas tarjetas) y cuánto terminás pagando.') },
+    { claves: ['dolar', 'dolares', 'tipo de cambio', 'moneda', 'colones'], r: () => R(`Con el botón ₡ / US$ de arriba cambiás todos los precios a dólares. Usamos el tipo de cambio del Ministerio de Hacienda${S.tc.venta ? ` (hoy ₡${String(S.tc.venta).replace('.', ',')})` : ''}.`) },
+    { claves: ['tienda', 'tiendas', 'cuales tiendas', 'que tiendas', 'walmart', 'monge', 'gollo'], r: () => R(`Hoy comparamos ${tiendasActivas().length || 'varias'} tiendas: ${tiendasActivas().map((t) => t.nombre).join(', ') || 'cargando…'}. En “Tiendas” ves cuál es más barata más veces.`, ['Ver tiendas']) },
+    { claves: ['cuenta', 'registrar', 'registro', 'crear cuenta', 'iniciar sesion', 'sesion', 'ingresar', 'login', 'contrasena', 'clave', 'perfil', 'usuario'], r: () => R(C.usuario ? `Ya estás en tu cuenta (${C.usuario.email}). Tu lista y alertas se guardan solas.` : 'Tocá “Ingresar” arriba para crear tu cuenta gratis. Así tu lista, alertas y búsquedas se guardan en la nube y las ves en el celular y la compu. Si olvidaste la contraseña, ahí mismo podés recuperarla.', C.usuario ? [] : ['Abrir mi cuenta']) },
+    { claves: ['olvide', 'olvido', 'recuperar', 'contrasena', 'clave', 'restablecer'], r: () => R('Tocá “Ingresar” arriba y después “¿Olvidaste tu contraseña?”. Escribís tu correo y te llega un enlace para crear una contraseña nueva (revisá también el spam).', ['Abrir mi cuenta']) },
+    { claves: ['oferta', 'ofertas', 'semana', 'rebaja', 'rebajas', 'descuentos'], r: () => R('En “Ofertas de la semana” están los productos que de verdad bajaron de precio en los últimos 7 días y las rebajas sin descuentos inflados.', ['Ofertas de la semana']) },
+    { claves: ['contacto', 'contactar', 'whatsapp', 'correo', 'email', 'escribir', 'reportar', 'error', 'sugerencia'], r: () => R(`Podés escribirnos por WhatsApp al ${CFG.whatsappVisible} o al correo ${CFG.correo}. También está el formulario en la página de Contacto.`, ['Ir a contacto']) },
+    { claves: ['instalar', 'app', 'aplicacion', 'pantalla de inicio', 'descargar'], r: () => R('En el celular abrí el menú del navegador y tocá “Agregar a pantalla de inicio”. Queda como una app con el logo de PinkyPrecios.') },
+    { claves: ['oscuro', 'claro', 'tema', 'noche'], r: () => R('El botón con el círculo mitad lleno, arriba, cambia entre tema automático, claro y oscuro.') },
+    { claves: ['kilo', 'litro', 'por unidad', 'super', 'supermercado'], r: () => R('En productos de supermercado te mostramos el precio por kilo o por litro, para comparar presentaciones distintas. En los resultados podés ordenar por ese precio.', ['Buscá café']) },
+    { claves: ['real', 'reales', 'de donde', 'confiable', 'fuente', 'verdad'], r: () => R('Los precios salen en vivo de los sitios públicos de cada tienda y los revisamos cada 6 horas. Ninguna tienda paga por aparecer. Igual, confirmá siempre en la tienda antes de comprar.') },
+    { claves: ['gracias', 'genial', 'tuanis', 'excelente', 'perfecto'], r: () => R('¡Con mucho gusto! 💗 Si necesitás algo más, aquí estoy.') },
+    { claves: ['quien', 'creadora', 'autor', 'hizo', 'valeria'], r: () => R(`PinkyPrecios lo creó ${CFG.autora} como proyecto final de programación en Costa Rica.`) }
+  ];
+  const ACCIONES_CHIP = {
+    'Abrir mi lista': () => { S.panel = 'lista'; render(); },
+    'Ver mis alertas': () => { S.panel = 'alertas'; render(); },
+    'Ver tiendas': () => { S.panel = 'tiendas'; render(); },
+    'Abrir mi cuenta': () => { S.panel = 'cuenta'; renderPanel(true); },
+    'Ofertas de la semana': () => { S.panel = null; irA({ ver: 'ofertas' }); },
+    'Ir a contacto': () => { S.panel = null; irA({ ver: 'contacto' }); },
+    'Ver categorías': () => { S.panel = null; irA({}); setTimeout(() => document.getElementById('t-cats')?.scrollIntoView({ behavior: 'smooth' }), 100); }
+  };
+
+  function entender(texto) {
+    const t = ' ' + norm(texto).replace(/[^a-z0-9ñ ]/g, ' ').replace(/\s+/g, ' ') + ' ';
+    const busca = t.match(/\b(?:busca|buscame|buscar|busque|precio de|precio del|precio de la|cuanto cuesta|cuanto vale|cuanto sale|donde esta mas barat[oa]|donde venden|quiero comprar|comparame|compara)\s+(?:un |una |el |la |los |las )?(.{2,60})$/);
+    if (busca) { const q = busca[1].trim(); return R(`Te busco “${q}” en todas las tiendas… 🔎`, [], () => { S.panel = null; irA({ q }); }); }
+    // Coincidencia por raíz: "registro", "registrarme" y "registrarse" cuentan igual
+    const palabras = t.trim().split(' ').filter((w) => w.length > 2);
+    const raiz = (w) => w.slice(0, Math.max(5, Math.min(6, w.length - 2)));
+    const pega = (clave) => clave.includes(' ')
+      ? t.includes(' ' + clave + ' ')
+      : palabras.some((w) => w === clave || (clave.length >= 5 && w.length >= 5 && (w.startsWith(raiz(clave)) || clave.startsWith(raiz(w)))));
+    let mejorI = null, puntos = 0;
+    for (const it of INTENCIONES) {
+      let p = 0;
+      for (const c of it.claves) if (pega(c)) p += c.includes(' ') ? 2 : 1;
+      if (p > puntos) { puntos = p; mejorI = it; }
+    }
+    return mejorI ? mejorI.r() : null;
+  }
+
+  function agregarMensaje(rol, texto, chips = []) {
+    CH.mensajes.push({ role: rol, content: texto, chips });
+    pintarChat();
+  }
+
+  async function preguntar(texto) {
+    texto = texto.trim();
+    if (!texto) return;
+    agregarMensaje('user', texto);
+    const r = entender(texto);
+    if (r) {
+      CH.escribiendo = true; pintarChat();
+      await new Promise((ok) => setTimeout(ok, 350));
+      CH.escribiendo = false;
+      agregarMensaje('assistant', r.texto, r.chips);
+      if (r.accion) setTimeout(r.accion, 700);
+      return;
+    }
+    if (CH.ia === null) { try { CH.ia = (await api('/asistente')).disponible; } catch (e) { CH.ia = false; } }
+    if (CH.ia) {
+      CH.escribiendo = true; pintarChat();
+      try {
+        const d = await api('/asistente', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mensajes: CH.mensajes.map((m) => ({ role: m.role, content: m.content })) }) });
+        CH.escribiendo = false;
+        agregarMensaje('assistant', d.respuesta || 'No tengo una respuesta para eso.');
+        return;
+      } catch (e) { CH.escribiendo = false; }
+    }
+    agregarMensaje('assistant', `No estoy segura de entenderte 🙈 Puedo ayudarte con cómo buscar, tu lista, alertas, cuotas, ofertas o tu cuenta. Si querés que busque algo, escribí por ejemplo “buscá freidora de aire”.`, ['¿Cómo busco?', 'Ofertas de la semana', 'Ir a contacto']);
+  }
+
+  function panelAsistente() {
+    if (!CH.mensajes.length) CH.mensajes.push({ role: 'assistant', content: `¡Hola${nombreUsuario() ? ', ' + nombreUsuario() : ''}! Soy Pinky, la asistente de PinkyPrecios 💗\n¿En qué te ayudo?`, chips: ['¿Cómo busco?', 'Ofertas de la semana', '¿Qué es un descuento inflado?', 'Crear cuenta'] });
+    return cabeceraPanel('Asistente Pinky', 'Respuestas al instante sobre cómo usar la página') + `
+      <div class="chat">
+        <div class="chat-msgs" id="chat-msgs" aria-live="polite"></div>
+        <form class="chat-form" id="form-chat" autocomplete="off">
+          <label class="sr-only" for="chat-in">Escribí tu pregunta</label>
+          <input id="chat-in" placeholder="Escribí tu pregunta o “buscá…”" maxlength="300">
+          <button type="submit" class="btn primario" style="padding:8px 16px">Enviar</button>
+        </form>
+        <p class="chat-pie">Pinky responde preguntas sobre la página. Para precios, buscá el producto.</p>
+      </div>`;
+  }
+
+  function pintarChat() {
+    const caja = $('#chat-msgs');
+    if (!caja) return;
+    caja.innerHTML = CH.mensajes.map((m) => `<div class="burbuja ${m.role === 'user' ? 'yo' : 'bot'}">${esc(m.content)}${m.chips?.length ? `<div class="chips-chat">${m.chips.map((c) => `<button type="button" data-action="chat-chip" data-c="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}</div>`).join('')
+      + (CH.escribiendo ? '<div class="burbuja bot"><span class="escribiendo" aria-label="Escribiendo"><i></i><i></i><i></i></span></div>' : '');
+    caja.scrollTop = caja.scrollHeight;
+  }
+
+  async function copiar(texto, msg) {
+    try { await navigator.clipboard.writeText(texto); aviso(msg); } catch (e) { aviso(texto); }
+  }
+
+  async function enviarContactoForm(f) {
+    const err = $('#c-error'), ok = $('#c-ok'), boton = f.querySelector('button[type=submit]');
+    err.hidden = true; ok.hidden = true;
+    const datos = { nombre: f.nombre.value, correo: f.correo.value, asunto: f.asunto.value, mensaje: f.mensaje.value, sitio: f.sitio.value };
+    if (datos.mensaje.trim().length < 5) { err.textContent = 'Escribí tu mensaje (al menos 5 letras).'; err.hidden = false; f.mensaje.focus(); return; }
+    if (datos.correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(datos.correo.trim())) { err.textContent = 'Revisá el correo: falta la @ o el dominio.'; err.hidden = false; f.correo.focus(); return; }
+    boton.disabled = true; boton.textContent = 'Enviando…';
+    try { await api('/contacto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) }); ok.hidden = false; f.reset(); }
+    catch (e) { err.textContent = `${e.message} También podés escribirnos a ${CFG.correo} o por WhatsApp al ${CFG.whatsappVisible}.`; err.hidden = false; }
+    boton.disabled = false; boton.textContent = 'Enviar mensaje';
+  }
+
+  // ---------- App instalable ----------
+  let pedidoInstalar = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); pedidoInstalar = e; const b = $('#btn-instalar'); if (b) b.hidden = false; });
+  async function instalarApp() {
+    if (!pedidoInstalar) { aviso('En el celular: menú del navegador → “Agregar a pantalla de inicio”'); return; }
+    pedidoInstalar.prompt();
+    await pedidoInstalar.userChoice.catch(() => {});
+    pedidoInstalar = null; $('#btn-instalar').hidden = true;
+  }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
   // ---------- Arranque ----------
   function pintarLogo() {
     const l = $('#logo');
@@ -913,11 +1587,14 @@
 
   aplicarTema();
   pintarLogo();
+  $('#anio').textContent = new Date().getFullYear();
+  iniciarCuentas();
   leerUrl();
   api('/inicio').then((r) => {
     S.inicio = r;
     if (r.tipoCambio?.venta) S.tc.venta = r.tipoCambio.venta;
     $('#pie-fuente').textContent = `Tipo de cambio de referencia: ₡${r.tipoCambio?.venta ?? '—'} por dólar (${r.tipoCambio?.fuente || ''}).`;
+    $('#anuncio-tc').textContent = r.tipoCambio?.venta ? `Dólar hoy: ₡${String(r.tipoCambio.venta).replace('.', ',')} (Hacienda)` : 'Tipo de cambio no disponible';
     revisarAlertas();
   }).catch((e) => { S.errorInicio = e; }).finally(() => { if (S.vista === 'inicio' || S.panel === 'tiendas') render(); });
 })();

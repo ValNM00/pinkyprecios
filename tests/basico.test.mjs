@@ -9,7 +9,7 @@ delete process.env.SUPABASE_URL;
 
 const { parsearRobots, rutaPermitida } = await import('../netlify/lib/robots.mjs');
 const { extraerModelo, eanValido, relevancia, agrupar } = await import('../netlify/lib/texto.mjs');
-const { ofertaDePagina, textoDeUrl } = await import('../netlify/lib/adaptadores.mjs');
+const { ofertaDePagina, textoDeUrl, urlsDeSitemap, buscarWoo, detectar } = await import('../netlify/lib/adaptadores.mjs');
 const { buscar, analizar } = await import('../netlify/lib/servicios.mjs');
 
 test('robots.txt: respeta Disallow, Allow y comodines', () => {
@@ -98,4 +98,38 @@ test('análisis del historial: registrando, buen momento y descuento inflado', (
   const r = analizar([{ id: 'a', precio: 1000, antes: 1300, disponible: true }], hist);
   assert.equal(r.inflados.a, true, 'antes costaba lo mismo: el descuento es inflado');
   assert.equal(r.momento.nivel, 'bueno');
+});
+
+test('tiendas con varios países: solo guarda páginas y precios de Costa Rica', async () => {
+  const { urls, notas } = await urlsDeSitemap({ id: 'curacao', url: 'https://www.lacuracaonline.com/costarica' }, { tiempo: 5000 });
+  // Solo lee el mapa de Costa Rica (no el de Guatemala) y acepta sus páginas aunque cambie el dominio o la ruta
+  assert.deepEqual(urls.map((u) => u.url), ['https://lacuracaonline.com/costarica/pantalla-lg-43-smart.html', 'https://www.lacuracaonline.com/refrigeradora-mabe-14-pies.html']);
+  assert.ok(notas[0].startsWith('2 mapas'));
+  const html = `<script type="application/ld+json">{"@type":"Product","name":"Pantalla LG 43","offers":{"price":"2499","priceCurrency":"GTQ"}}</script>`;
+  assert.equal(ofertaDePagina({ id: 'curacao' }, 'https://x/p', html, 457), null, 'no acepta quetzales');
+});
+
+test('tiendas WooCommerce: detecta la plataforma y lee precio, rebaja y modelo', async () => {
+  const t = { id: 'extremetech', url: 'https://www.extremetechcr.com', moneda: 'auto' };
+  assert.equal((await detectar(t)).plataforma, 'woocommerce');
+  const [o] = await buscarWoo(t, 'monitor', 457);
+  assert.equal(o.nombre, 'Monitor Samsung 27" Odyssey G5 LS27CG550');
+  assert.equal(o.precio, 189900);
+  assert.equal(o.antes, 219900);
+  assert.equal(o.marca, 'Samsung');
+  assert.equal(o.modelo, 'ls27cg550');
+});
+
+test('mismo modelo con sufijo de región se agrupa', async () => {
+  const g = agrupar([
+    { id: 'a:1', tienda: 'a', nombre: 'Pantalla Samsung UN55DU7000', marca: 'Samsung', modelo: 'un55du7000', precio: 1, disponible: true },
+    { id: 'b:1', tienda: 'b', nombre: 'Smart TV Samsung 55 UN55DU7000PXPA', marca: 'SAMSUNG', modelo: 'un55du7000pxpa', precio: 2, disponible: true },
+    { id: 'c:1', tienda: 'c', nombre: 'Smart TV Samsung 65 UN65DU7000PXPA', marca: 'Samsung', modelo: 'un65du7000pxpa', precio: 3, disponible: true }
+  ]);
+  assert.equal(g.length, 2);
+});
+
+test('filtro de país: reconoce variantes de Costa Rica y no confunde palabras que empiezan con "cr"', async () => {
+  const { urls } = await urlsDeSitemap({ id: 'multi', url: 'https://www.multi.example/costarica' }, { tiempo: 5000 });
+  assert.deepEqual(urls.map((x) => new URL(x.url).pathname), ['/costarica_es/pantalla-tcl-50.html', '/cr/refrigeradora-lg.html']);
 });

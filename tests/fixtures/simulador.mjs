@@ -28,6 +28,14 @@ const SIMAN = [
   vtex({ id: '8', sku: '556', nombre: 'Freidora de aire 21 litros', marca: 'Oster', ref: '103247361', ean: '', link: 'https://cr.siman.com/freidora-de-aire-21-litros-9-funciones-103247361/p', cat: '/Electrodomésticos/Cocina/', precio: 203310, lista: 225900, vendedor: 'Simán' })
 ];
 
+const MAXIPALI = [
+  vtex({ id: '31', sku: '8001', nombre: 'Arroz Tio Pelon 99% grano entero 1800 g', marca: 'Tio Pelon', ref: '7441001600106', ean: '7441001600106', link: 'https://www.maxipali.co.cr/arroz-tio-pelon-99-1800-g/p', cat: '/Abarrotes/Granos/', precio: 2350, vendedor: 'Maxi Palí' }),
+  vtex({ id: '32', sku: '8002', nombre: 'Café 1820 molido clásico 500 g', marca: '1820', ref: '7441001100156', ean: '7441001100156', link: 'https://www.maxipali.co.cr/cafe-1820-500-g/p', cat: '/Abarrotes/Café/', precio: 3990, lista: 4450, vendedor: 'Maxi Palí' })
+];
+const MASXMENOS = [
+  vtex({ id: '41', sku: '9001', nombre: 'Arroz Tío Pelón 99% 1.8 kg', marca: 'Tio Pelon', ref: '7441001600106', ean: '7441001600106', link: 'https://www.masxmenos.cr/arroz-tio-pelon-1-8-kg/p', cat: '/Abarrotes/Arroz/', precio: 2595, vendedor: 'Más x Menos' })
+];
+
 function filtrar(lista, url) {
   const ft = decodeURIComponent((url.match(/ft=([^&]*)/) || [])[1] || '').toLowerCase();
   const sku = (url.match(/skuId:([^&]*)/) || [])[1];
@@ -39,6 +47,9 @@ function filtrar(lista, url) {
 }
 
 export default function simulador(url) {
+  if (url === 'https://www.multi.example/robots.txt') return { body: 'User-agent: *\nSitemap: https://www.multi.example/sitemap1.xml', tipo: 'text/plain' };
+  if (url === 'https://www.multi.example/sitemap1.xml') return { tipo: 'application/xml', body: ['/costarica_es/pantalla-tcl-50.html', '/crema-dental-colgate.html', '/guatemala/pantalla-tcl-50.html', '/cr/refrigeradora-lg.html'].map((p) => `<url><loc>https://www.multi.example${p}</loc></url>`).join('').replace(/^/, '<urlset>') + '</urlset>' };
+  if (url === 'https://www.lacuracaonline.com/robots.txt') return { body: 'User-agent: *\nDisallow: /checkout/\nSitemap: https://www.lacuracaonline.com/sitemap_index.xml', tipo: 'text/plain' };
   if (url.endsWith('/robots.txt')) {
     if (url.includes('bloqueada')) return { body: 'User-agent: *\nDisallow: /', tipo: 'text/plain' };
     if (url.includes('tiendamonge')) return { body: 'User-agent: *\nDisallow: /*?\nDisallow: /catalogsearch/\nSitemap: https://www.tiendamonge.com/media/sitemap.xml', tipo: 'text/plain' };
@@ -47,6 +58,11 @@ export default function simulador(url) {
   if (url.includes('api.hacienda.go.cr')) return { body: { venta: { fecha: '2026-10-08', valor: 457.03 }, compra: { fecha: '2026-10-08', valor: 450.81 } } };
   if (url.startsWith('https://www.walmart.co.cr/api/')) return { body: filtrar(WALMART, url) };
   if (url.startsWith('https://cr.siman.com/api/')) return { body: filtrar(SIMAN, url) };
+  if (url.startsWith('https://www.maxipali.co.cr/api/')) return { body: filtrar(MAXIPALI, url) };
+  if (url.startsWith('https://www.masxmenos.cr/api/')) return { body: filtrar(MASXMENOS, url) };
+  if (url === 'https://www.lacuracaonline.com/sitemap_index.xml') return { tipo: 'application/xml', body: '<sitemapindex><sitemap><loc>https://www.lacuracaonline.com/guatemala/sitemap.xml</loc></sitemap><sitemap><loc>https://www.lacuracaonline.com/costarica/sitemap.xml</loc></sitemap></sitemapindex>' };
+  if (url === 'https://www.lacuracaonline.com/costarica/sitemap.xml') return { tipo: 'application/xml', body: '<urlset><url><loc>https://lacuracaonline.com/costarica/pantalla-lg-43-smart.html</loc></url><url><loc>https://www.lacuracaonline.com/refrigeradora-mabe-14-pies.html</loc></url></urlset>' };
+  if (url === 'https://www.lacuracaonline.com/guatemala/sitemap.xml') return { tipo: 'application/xml', body: '<urlset><url><loc>https://www.lacuracaonline.com/guatemala/refri-lg.html</loc></url></urlset>' };
   if (url.startsWith('https://www.tiendamonge.com/media/sitemap.xml')) {
     return { tipo: 'application/xml', body: `<?xml version="1.0"?><urlset><url><loc>https://www.tiendamonge.com/pantalla-lg-43-pulgadas-fhd-smart-43lm6370psb.html</loc></url><url><loc>https://www.tiendamonge.com/politica-de-privacidad.html</loc></url><url><loc>https://www.tiendamonge.com/freidora-de-aire-oster-6-litros.html</loc></url></urlset>` };
   }
@@ -59,6 +75,11 @@ export default function simulador(url) {
   }
   if (url.startsWith('https://icon.co.cr/products/parlante-marshall-emberton-iii.js')) {
     return { body: { variants: [{ id: 777, price: 21999, compare_at_price: 26999, available: true }] } };
+  }
+  if (url.startsWith('https://www.extremetechcr.com/wp-json/wc/store/v1/products')) {
+    return { body: [{ id: 901, name: 'Monitor Samsung 27&#8243; Odyssey G5 LS27CG550', permalink: 'https://www.extremetechcr.com/producto/monitor-samsung-odyssey-g5/', sku: 'LS27CG550ENXZA',
+      prices: { price: '18990000', regular_price: '21990000', sale_price: '18990000', currency_code: 'CRC', currency_minor_unit: 2 },
+      is_in_stock: true, is_purchasable: true, images: [{ src: 'https://img.example/odyssey.jpg' }], categories: [{ name: 'Monitores' }], brands: [{ name: 'Samsung' }] }] };
   }
   if (url.includes('/products.json')) return { status: 404, body: 'no' };
   if (url.includes('/api/catalog_system')) return { status: 404, body: 'no' };
