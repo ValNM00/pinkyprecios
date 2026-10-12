@@ -146,34 +146,46 @@ export function textoDeUrl(url) {
   } catch (e) { return ''; }
 }
 
-export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000, desde = 0 } = {}) {
+// Devuelve { urls, notas }: las notas explican qué pasó con cada mapa del sitio (para el diagnóstico)
+export async function urlsDeSitemap(t, { limite = 40000, tiempo = 18000 } = {}) {
   const inicio = Date.now();
   const origen = new URL(t.url).origin;
   const robots = await robotsDe(origen);
-  let cola = robots.sitemaps.length ? [...robots.sitemaps] : [origen + '/sitemap.xml'];
+  const cola = robots.sitemaps.length ? [...robots.sitemaps] : [origen + '/sitemap.xml'];
+  const vistos = new Set();
   const urls = [];
-  let procesados = 0;
-  while (cola.length && urls.length < limite && Date.now() - inicio < tiempo) {
+  const notas = [];
+  let leidos = 0;
+  while (cola.length && urls.length < limite) {
+    const resta = tiempo - (Date.now() - inicio);
+    if (resta < 1500) { notas.push(`se acabó el tiempo con ${cola.length} mapas pendientes`); break; }
     const sm = cola.shift();
     let xml;
-    try { xml = await pedir(sm, { tipo: 'bytes', timeout: 12000 }); } catch (e) { if (e.bloqueado) continue; continue; }
+    try { xml = await pedir(sm, { tipo: 'bytes', timeout: Math.min(12000, resta) }); }
+    catch (e) {
+      const corto = sm.replace(/^https?:\/\/[^/]+/, '');
+      notas.push(e.bloqueado ? `${corto}: bloqueado por robots.txt` : e.status ? `${corto}: HTTP ${e.status}` : `${corto}: ${/abort/i.test(e.message) ? 'tardó demasiado' : e.message.slice(0, 60)}`);
+      continue;
+    }
+    leidos++;
     const locs = [...xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?([^<\]]+?)(?:\]\]>)?\s*<\/loc>/g)].map((m) => m[1].trim().replace(/&amp;/g, '&'));
     if (/<sitemapindex/i.test(xml)) {
       const hijos = locs.filter((l) => /product|producto|catalog/i.test(l));
       cola.push(...(hijos.length ? hijos : locs).slice(0, 20));
       continue;
     }
-    procesados++;
-    if (procesados <= desde) continue;
+    if (!locs.length) notas.push(`${sm.replace(/^https?:\/\/[^/]+/, '')}: no parece un mapa del sitio`);
     for (const u of locs) {
       if (urls.length >= limite) break;
-      if (NO_PRODUCTO.test(u) || u.includes('?')) continue;
+      if (vistos.has(u) || NO_PRODUCTO.test(u) || u.includes('?')) continue;
       const texto = textoDeUrl(u);
       if (texto.split(' ').length < 2) continue;
+      vistos.add(u);
       urls.push({ url: u, texto });
     }
   }
-  return urls;
+  notas.unshift(`${leidos} ${leidos === 1 ? 'mapa leído' : 'mapas leídos'}`);
+  return { urls, notas };
 }
 
 function buscarProductoLd(nodo, salida = []) {

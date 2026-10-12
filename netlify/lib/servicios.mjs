@@ -302,14 +302,18 @@ export async function revisarAlertas() {
 }
 
 // ---------------- Indexación de catálogos (Shopify y mapas del sitio) ----------------
-export async function indexar({ tiempo = 20000 } = {}) {
+export async function indexar({ tiempo = 20000, tienda = null } = {}) {
   if (!hayDB()) return { error: 'Supabase no está configurado' };
   const ini = Date.now();
   const tiendas = await tiendasEfectivas(true);
   const base = (t) => ({ id: t.id, nombre: t.nombre, url: t.url, plataforma: t.plataforma });
 
   // 1) Detectar tiendas nuevas en modo automático
-  const sinDetectar = tiendas.find((t) => t.plataforma === 'auto' && t.plataformaReal === 'auto');
+  const elegida = tienda ? tiendas.find((t) => t.id === tienda) : null;
+  if (tienda && !elegida) return { error: `No existe la tienda "${tienda}"` };
+  const sinDetectar = elegida
+    ? (elegida.plataforma === 'auto' && ['auto', 'ninguna'].includes(elegida.plataformaReal) ? elegida : null)
+    : tiendas.find((t) => t.plataforma === 'auto' && t.plataformaReal === 'auto');
   if (sinDetectar) {
     const d = await detectar(sinDetectar);
     await guardarTienda({ ...base(sinDetectar), plataforma_detectada: d.plataforma, estado: d.plataforma === 'ninguna' ? 'no_disponible' : 'pendiente', detalle: d.detalle });
@@ -321,8 +325,9 @@ export async function indexar({ tiempo = 20000 } = {}) {
   const indexables = tiendas.filter((t) => ['shopify', 'sitemap'].includes(t.plataformaReal))
     .filter((t) => t.cursor || !t.indexadoEn || Date.now() - new Date(t.indexadoEn).getTime() > 20 * 3600e3)
     .sort((a, b) => (b.cursor ? 1 : 0) - (a.cursor ? 1 : 0) || new Date(a.indexadoEn || 0) - new Date(b.indexadoEn || 0));
-  const t = indexables[0];
+  const t = elegida || indexables[0];
   if (!t) return { mensaje: 'Todos los catálogos están al día' };
+  if (!['shopify', 'sitemap'].includes(t.plataformaReal)) return { tienda: t.id, mensaje: `Esta tienda no necesita indexarse (${t.plataformaReal})` };
 
   const tc = (await tipoCambio()).venta;
   try {
@@ -345,16 +350,16 @@ export async function indexar({ tiempo = 20000 } = {}) {
       cacheTiendas = null;
       return { tienda: t.id, filas: total, terminado };
     }
-    const urls = await urlsDeSitemap(t, { tiempo: Math.max(5000, tiempo - (Date.now() - ini) - 6000), limite: 15000 });
+    const { urls, notas } = await urlsDeSitemap(t, { tiempo: Math.max(4000, tiempo - (Date.now() - ini) - 2500), limite: 15000 });
     const ahora = new Date().toISOString();
     await guardarPaginas(urls.map((u) => ({ id: `${t.id}:${hash(u.url)}`, tienda_id: t.id, url: u.url, texto: u.texto, actualizado: ahora })));
+    const detalle = (urls.length ? `${urls.length} páginas del mapa del sitio. ` : 'No se encontraron páginas de producto. ') + notas.join(' · ');
     await guardarTienda({
-      ...base(t), estado: urls.length ? 'ok' : 'no_disponible',
-      detalle: urls.length ? 'Mapa del sitio indexado; los precios se leen de cada página' : 'No se encontraron páginas de producto en el mapa del sitio',
+      ...base(t), estado: urls.length ? 'ok' : 'no_disponible', detalle: detalle.slice(0, 500),
       cursor: null, indexado_en: ahora, productos_indexados: urls.length
     });
     cacheTiendas = null;
-    return { tienda: t.id, urls: urls.length };
+    return { tienda: t.id, urls: urls.length, notas };
   } catch (e) {
     await guardarTienda({ ...base(t), estado: e.bloqueado ? 'bloqueado' : 'error', detalle: String(e.message).slice(0, 200), indexado_en: new Date().toISOString(), cursor: null });
     cacheTiendas = null;
@@ -380,7 +385,9 @@ export async function diagnostico() {
         const prods = await conLimite(paginaShopify(t, 1), 8000);
         r = { plataforma, estado: prods.length ? 'ok' : 'sin_resultados', detalle: prods.length ? `Catálogo público OK (${t.indexados} productos indexados)` : 'Catálogo vacío' };
       } else if (plataforma === 'sitemap') {
-        r = { plataforma, estado: t.indexados ? 'ok' : 'pendiente', detalle: t.indexados ? `${t.indexados} páginas indexadas del mapa del sitio` : (detalleDet || 'Falta indexar el mapa del sitio') };
+        r = t.indexadoEn
+          ? { plataforma, estado: t.indexados ? 'ok' : (t.estado || 'no_disponible'), detalle: t.detalle || `${t.indexados} páginas indexadas`, guardado: true }
+          : { plataforma, estado: 'pendiente', detalle: detalleDet || 'Falta indexar el mapa del sitio' };
       } else {
         r = { plataforma, estado: plataforma === 'auto' ? 'pendiente' : 'no_disponible', detalle: detalleDet || t.detalle || 'Sin datos públicos legibles' };
       }
@@ -388,7 +395,8 @@ export async function diagnostico() {
       r = { plataforma: t.plataformaReal, estado: e.bloqueado ? 'bloqueado' : 'error', detalle: e.bloqueado ? 'robots.txt no permite leer esta tienda' : String(e.message).slice(0, 160) };
     }
     r.ms = Date.now() - ini;
-    if (hayDB()) {
+    const yaGuardado = r.guardado; delete r.guardado;
+    if (hayDB() && !yaGuardado) {
       await guardarTienda({ id: t.id, nombre: t.nombre, url: t.url, plataforma: t.plataforma, estado: r.estado, detalle: r.detalle, ...(t.plataforma === 'auto' && r.plataforma !== 'auto' ? { plataforma_detectada: r.plataforma } : {}) }).catch(() => {});
     }
     return { id: t.id, nombre: t.nombre, url: t.url, ...r };
