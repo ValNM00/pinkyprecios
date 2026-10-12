@@ -122,6 +122,8 @@ export async function buscar(q, alTerminar = (p) => p) {
     .sort((a, b) => b.relevancia - a.relevancia || b.tiendas - a.tiendas || (a.desde ?? 1e12) - (b.desde ?? 1e12))
     .slice(0, 90);
 
+  if (hayDB() && grupos.length) await conLimite(adjuntarHistorial(grupos.slice(0, 60)), 1800).catch(() => {});
+
   const resultado = {
     q, tipoCambio: tc, ms: Date.now() - t0, grupos,
     tiendas: tiendas.map((t) => ({ id: t.id, nombre: t.nombre, ...estados[t.id] }))
@@ -135,6 +137,26 @@ export async function buscar(q, alTerminar = (p) => p) {
     })().catch((e) => console.error('No se pudo guardar la búsqueda:', e.message)));
   }
   return resultado;
+}
+
+// Mini-historial de 45 días para las tarjetas de resultados (mínimo diario entre las tiendas del grupo)
+async function adjuntarHistorial(grupos) {
+  const ids = [...new Set(grupos.flatMap((g) => g.ofertas.map((o) => o.id)))];
+  const desde = fechaHaceDias(45);
+  const partes = [];
+  for (let i = 0; i < ids.length; i += 120) partes.push(ids.slice(i, i + 120));
+  const filas = (await Promise.all(partes.map((p) => rest(`historial_precios?select=oferta_id,fecha,precio&oferta_id=in.${lista(p)}&fecha=gte.${desde}&limit=6000`)))).flat();
+  const porOferta = {};
+  for (const f of filas) (porOferta[f.oferta_id] ||= []).push(f);
+  for (const g of grupos) {
+    const dia = new Map();
+    for (const o of g.ofertas) for (const f of porOferta[o.id] || []) dia.set(f.fecha, Math.min(dia.get(f.fecha) ?? Infinity, f.precio));
+    const serie = [...dia.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([f, p]) => ({ f, p }));
+    if (serie.length < 2) continue;
+    const precios = serie.map((x) => x.p);
+    const hace30 = serie.find((x) => x.f >= fechaHaceDias(30)) || serie[0];
+    g.hist = { serie, min: Math.min(...precios), max: Math.max(...precios), desde: serie[0].f, dias: serie.length, cambio: g.desde && hace30.p ? (g.desde - hace30.p) / hace30.p : 0 };
+  }
 }
 
 // ---------------- Análisis del historial ----------------

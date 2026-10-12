@@ -1,6 +1,6 @@
 // Service worker mínimo: permite instalar la app y abrir la página aunque la conexión esté lenta.
 // Los precios (/api) siempre se piden en vivo; solo se guardan los archivos de la página.
-const CACHE = 'pinky-v1';
+const CACHE = 'pinky-v2';
 const BASE = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'img/logo.png', 'img/favicon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(BASE)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });

@@ -22,7 +22,16 @@ Cuando alguien busca un producto, la página consulta en ese momento los catálo
 | **Lo más buscado** | Las búsquedas reales de los usuarios. |
 | Colones / dólares | Tipo de cambio oficial del **Ministerio de Hacienda**, consultado en vivo. |
 | Estado de las tiendas | La página muestra qué tiendas están funcionando y por qué alguna no. |
-| Mi lista, comparar, compartir, modo oscuro | Mi lista y vistos recientemente se guardan en el navegador. Compartir copia un enlace al producto. |
+| Mi lista, comparar, modo oscuro | Mi lista (con cantidades) y vistos recientemente se guardan en el navegador o en tu cuenta. |
+| **Canasta básica** | Una vez al día mide 10 productos básicos en los supermercados, los lleva a la misma presentación y arma un índice (100 = primer día). |
+| **Mini historial en cada resultado** | Gráfico pequeño de 45 días e insignias: “Precio más bajo registrado”, “Bajó/Subió X% en 30 días”. |
+| **Calculadora de cuotas** | En la pestaña Cuotas: monto, tasa anual y plazo → cuota mensual, total e intereses. |
+| **Búsqueda por voz** | Micrófono en el buscador (Chrome, Edge y Android). |
+| **Tiendas favoritas** | Estrella en el panel de Tiendas; salen primero y se puede buscar solo en ellas. |
+| **Reseñas de tiendas** | Estrellas y comentarios; para opinar hay que tener cuenta. |
+| **Tarjeta para compartir** | Imagen lista para WhatsApp o Instagram con el mejor precio. |
+| **Panel de administración** | `?ver=admin` (solo con la cuenta de `ADMIN_EMAILS`): mensajes de contacto, búsquedas, reseñas y estado de tiendas. |
+| Sobre el proyecto, tour y 404 | Página explicativa con diagrama, tour de bienvenida la primera vez y página de error propia. |
 
 ## Tiendas
 
@@ -107,6 +116,11 @@ Creá un repositorio y subí esta carpeta completa. Podés arrastrar los archivo
 2. En Supabase → **Authentication → URL Configuration**: *Site URL* = `https://TU-SITIO.netlify.app` y en *Redirect URLs* agregá `https://TU-SITIO.netlify.app/**`.
 3. Poné la URL del proyecto y la clave **publishable** en `public/config.js` (es pública por diseño).
 4. Opcional para la presentación: en **Authentication → Providers → Email** podés desactivar *Confirm email* para que las cuentas queden activas al instante (el correo gratuito de Supabase envía pocos mensajes por hora).
+
+### 5b. Canasta básica, reseñas y favoritas
+1. En Supabase → **SQL Editor**, corré `supabase/actualizacion-3.sql` (si instalaste desde cero con `schema.sql` ya está incluido).
+2. La canasta se mide sola todos los días a las 12:07 UTC (6:07 a. m. en Costa Rica). Para medirla de una vez: `https://TU-SITIO.netlify.app/api/admin?token=TU_ADMIN_TOKEN&tarea=canasta`.
+3. Panel de administración: entrá con la cuenta de `ADMIN_EMAILS` (por defecto naranjov740@gmail.com) y abrí `?ver=admin` o el botón en tu cuenta.
 
 ### 6. Asistente con IA (opcional)
 Sin configurar nada, el asistente responde las preguntas frecuentes. Para que use IA en las demás, agregá `ANTHROPIC_API_KEY` (y opcionalmente `ANTHROPIC_MODEL`, por defecto `claude-haiku-5-5`) en las variables de Netlify. Tiene costo por uso.

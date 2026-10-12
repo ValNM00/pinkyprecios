@@ -30,6 +30,12 @@ const SIMAN = [
 
 const MAXIPALI = [
   vtex({ id: '31', sku: '8001', nombre: 'Arroz Tio Pelon 99% grano entero 1800 g', marca: 'Tio Pelon', ref: '7441001600106', ean: '7441001600106', link: 'https://www.maxipali.co.cr/arroz-tio-pelon-99-1800-g/p', cat: '/Abarrotes/Granos/', precio: 2350, vendedor: 'Maxi Palí' }),
+  vtex({ id: '33', sku: '8003', nombre: 'Frijol negro Don Pedro 800 g', marca: 'Don Pedro', ref: '7441001200001', ean: '7441001200001', link: 'https://www.maxipali.co.cr/frijol/p', cat: '/Abarrotes/Granos/', precio: 1450, vendedor: 'Maxi Palí' }),
+  vtex({ id: '34', sku: '8004', nombre: 'Aceite vegetal Clover 1 L', marca: 'Clover', ref: '7441001300001', ean: '7441001300001', link: 'https://www.maxipali.co.cr/aceite/p', cat: '/Abarrotes/Aceites/', precio: 1890, vendedor: 'Maxi Palí' }),
+  vtex({ id: '35', sku: '8005', nombre: 'Aceite de oliva extra virgen 500 ml', marca: 'Borges', ref: 'x', ean: '', link: 'https://www.maxipali.co.cr/oliva/p', cat: '/Abarrotes/Aceites/', precio: 4990, vendedor: 'Maxi Palí' }),
+  vtex({ id: '36', sku: '8006', nombre: 'Azúcar blanca Doña María 2 kg', marca: 'Doña María', ref: '7441001400001', ean: '7441001400001', link: 'https://www.maxipali.co.cr/azucar/p', cat: '/Abarrotes/Azúcar/', precio: 1795, vendedor: 'Maxi Palí' }),
+  vtex({ id: '37', sku: '8007', nombre: 'Leche entera Dos Pinos 1000 ml', marca: 'Dos Pinos', ref: '7441001500001', ean: '7441001500001', link: 'https://www.maxipali.co.cr/leche/p', cat: '/Lácteos/Leche/', precio: 895, vendedor: 'Maxi Palí' }),
+  vtex({ id: '38', sku: '8008', nombre: 'Atún Sardimar en agua 3 x 140 g', marca: 'Sardimar', ref: '7441001600001', ean: '7441001600001', link: 'https://www.maxipali.co.cr/atun/p', cat: '/Abarrotes/Enlatados/', precio: 2990, vendedor: 'Maxi Palí' }),
   vtex({ id: '32', sku: '8002', nombre: 'Café 1820 molido clásico 500 g', marca: '1820', ref: '7441001100156', ean: '7441001100156', link: 'https://www.maxipali.co.cr/cafe-1820-500-g/p', cat: '/Abarrotes/Café/', precio: 3990, lista: 4450, vendedor: 'Maxi Palí' })
 ];
 const MASXMENOS = [
@@ -41,7 +47,7 @@ function filtrar(lista, url) {
   const sku = (url.match(/skuId:([^&]*)/) || [])[1];
   if (sku) return lista.filter((p) => p.items[0].itemId === sku);
   if (!ft) return lista.slice(0, 1);
-  const pal = ft.split(/\s+/);
+  const pal = ft.split(/\s+/).filter((w) => !['de', 'en', 'vegetal', 'entera', 'molido', 'hojuelas', 'trigo'].includes(w));
   const sin = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   return lista.filter((p) => pal.some((w) => sin(p.productName + ' ' + p.categories[0]).includes(sin(w).replace(/s$/, '')) || (w === 'pantalla' && /televisor/i.test(p.productName)) || (w === 'televisor' && /pantalla/i.test(p.productName))));
 }

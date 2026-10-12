@@ -144,3 +144,21 @@ export function armarGrupo(lista) {
     ofertas
   };
 }
+
+// Cantidad del producto en kilos o litros (para precio por unidad): "Arroz 1800 g" → { cant: 1.8, u: 'kg' }
+export function cantidadBase(nombre) {
+  const t = normalizar(nombre).replace(/(\d) (\d{3})\b/g, '$1$2');
+  const r = String(nombre).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/,/g, '.')
+    .match(/(\d+(?:\.\d+)?)\s*(kg|kilo|kilos|kilogramos|g|gr|grs|gramos|l|lt|lts|litro|litros|ml|cc)\b/);
+  if (!r) return null;
+  let cant = parseFloat(r[1]);
+  const u = r[2];
+  let unidad;
+  if (['kg', 'kilo', 'kilos', 'kilogramos'].includes(u)) unidad = 'kg';
+  else if (['g', 'gr', 'grs', 'gramos'].includes(u)) { cant /= 1000; unidad = 'kg'; }
+  else if (['ml', 'cc'].includes(u)) { cant /= 1000; unidad = 'l'; }
+  else unidad = 'l';
+  const pack = t.match(/\b(\d{1,2}) ?(?:x|unidades|unid|pack|pzas?)\b/) || t.match(/\bx ?(\d{1,2})\b/) || t.match(/\bpack (?:de )?(\d{1,2})\b/);
+  if (pack) cant *= Math.min(48, parseInt(pack[1], 10));
+  return cant > 0 && cant < 200 ? { cant, u: unidad } : null;
+}

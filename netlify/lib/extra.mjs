@@ -119,3 +119,73 @@ export async function preguntarAsistente(mensajes) {
   const texto = (d.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   return { disponible: true, respuesta: texto || 'No tengo una respuesta para eso. Probá preguntarlo de otra forma.' };
 }
+
+// ---------------- Panel de administración ----------------
+// Se entra con la cuenta normal de la página; solo los correos de ADMIN_EMAILS ven el panel.
+const correosAdmin = () => (process.env.ADMIN_EMAILS || CORREO_CONTACTO()).split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+
+export async function usuarioDeToken(req) {
+  const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token || !process.env.SUPABASE_URL) return null;
+  const r = await fetch(process.env.SUPABASE_URL.replace(/\/$/, '') + '/auth/v1/user', {
+    headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + token }
+  }).catch(() => null);
+  if (!r || !r.ok) return null;
+  return r.json();
+}
+
+export async function esAdmin(req) {
+  const u = await usuarioDeToken(req);
+  return u && correosAdmin().includes(String(u.email || '').toLowerCase()) ? u : null;
+}
+
+export async function datosAdmin() {
+  const contar = async (ruta) => { try { return (await rest(ruta, { contar: true })).total; } catch (e) { return null; } };
+  const [mensajes, populares, recientes, cuentas, alertas, cumplidas, ofertas, registros, paginas, resenas, tiendas] = await Promise.all([
+    rest('mensajes?select=*&order=creado.desc&limit=100'),
+    rest('busquedas?select=termino,veces,ultima&order=veces.desc&limit=25'),
+    rest('busquedas?select=termino,veces,ultima&order=ultima.desc&limit=15'),
+    contar('datos_usuario?select=user_id&limit=1'),
+    contar('alertas?select=id&limit=1'),
+    contar('alertas?select=id&cumplida_en=not.is.null&limit=1'),
+    contar('ofertas?select=id&limit=1'),
+    contar('historial_precios?select=fecha&limit=1'),
+    contar('paginas?select=id&limit=1'),
+    rest('resenas?select=tienda_id,estrellas,comentario,nombre,creado&order=creado.desc&limit=30').catch(() => []),
+    rest('tiendas?select=id,nombre,plataforma_detectada,estado,detalle,revisado,productos_indexados&order=nombre').catch(() => [])
+  ]);
+  return { mensajes, populares, recientes, totales: { cuentas, alertas, cumplidas, ofertas, registros, paginas }, resenas, tiendas };
+}
+
+export async function accionAdmin({ accion, id }) {
+  const n = Number(id);
+  if (!Number.isInteger(n)) return { error: 'Mensaje inválido' };
+  if (accion === 'leido') await rest(`mensajes?id=eq.${n}`, { metodo: 'PATCH', cuerpo: { leido: true }, prefer: 'return=minimal' });
+  else if (accion === 'borrar') await rest(`mensajes?id=eq.${n}`, { metodo: 'DELETE', prefer: 'return=minimal' });
+  else return { error: 'Acción desconocida' };
+  return { ok: true };
+}
+
+// ---------------- Imágenes para la tarjeta de compartir ----------------
+// El navegador no deja dibujar en un <canvas> imágenes de otros sitios; esta función las trae (solo de tiendas conocidas).
+const HOSTS_EXTRA = ['vteximg.com.br', 'vtexassets.com', 'cdn.shopify.com', 'shopify.com', 'cloudfront.net', 'cloudinary.com', 'imgix.net'];
+export async function traerImagen(url) {
+  let u;
+  try { u = new URL(url); } catch (e) { return { error: 'Dirección inválida' }; }
+  if (u.protocol !== 'https:') return { error: 'Solo https' };
+  const raices = TIENDAS.map((t) => new URL(t.url).hostname.replace(/^www\./, '').split('.').slice(-3).join('.'));
+  const host = u.hostname.toLowerCase();
+  const permitido = [...HOSTS_EXTRA, ...raices].some((h) => host === h || host.endsWith('.' + h));
+  if (!permitido) return { error: 'Sitio no permitido' };
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 6000);
+  try {
+    const r = await fetch(u, { signal: ctl.signal, headers: { Accept: 'image/*' } });
+    const tipo = r.headers.get('content-type') || '';
+    if (!r.ok || !tipo.startsWith('image/')) return { error: 'No es una imagen' };
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > 3 * 1024 * 1024) return { error: 'Imagen muy grande' };
+    return { buf, tipo };
+  } catch (e) { return { error: 'No se pudo traer la imagen' }; }
+  finally { clearTimeout(t); }
+}

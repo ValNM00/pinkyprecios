@@ -43,8 +43,9 @@ const servidor = http.createServer(async (req, res) => {
   let archivo = path.join(publico, decodeURIComponent(url.pathname));
   if (!archivo.startsWith(publico)) { res.writeHead(403); return res.end(); }
   if (fs.existsSync(archivo) && fs.statSync(archivo).isDirectory()) archivo = path.join(archivo, 'index.html');
-  if (!fs.existsSync(archivo)) archivo = path.join(publico, 'index.html');
-  res.writeHead(200, { 'Content-Type': TIPOS[path.extname(archivo)] || 'application/octet-stream' });
+  let estado = 200;
+  if (!fs.existsSync(archivo)) { archivo = path.join(publico, '404.html'); estado = 404; } // igual que Netlify
+  res.writeHead(estado, { 'Content-Type': TIPOS[path.extname(archivo)] || 'application/octet-stream' });
   fs.createReadStream(archivo).pipe(res);
 });
 
