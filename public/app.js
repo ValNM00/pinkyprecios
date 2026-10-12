@@ -93,6 +93,12 @@
   }
   const foto = (src) => img(src);
 
+  // Una tienda se muestra solo si de verdad se puede leer
+  const EN_VIVO = ['vtex', 'woocommerce'], INDEXADAS = ['shopify', 'sitemap'];
+  const activa = (t) => (EN_VIVO.includes(t.plataforma) && !['bloqueado', 'no_disponible', 'error'].includes(t.estado))
+    || (INDEXADAS.includes(t.plataforma) && (t.estado === 'ok' || t.indexados > 0));
+  const tiendasActivas = () => (S.inicio?.tiendas || []).filter(activa);
+
   // ---------- Grupos ----------
   const tiendaNombre = (id) => (S.inicio?.tiendas || []).find((t) => t.id === id)?.nombre || (S.busqueda?.resultado?.tiendas || []).find((t) => t.id === id)?.nombre || id;
   const idsDe = (g) => g.ofertas.map((o) => o.id);
@@ -177,7 +183,7 @@
   const filtrosActivos = () => S.f.tiendas.length + (S.f.precioMax != null) + S.f.soloVarias + S.f.soloRebaja + S.f.agotados;
 
   // ---------- Vista: inicio ----------
-  const SUGERENCIAS = ['freidora de aire', 'pantalla 55', 'iphone 16', 'refrigeradora', 'lavadora', 'audífonos', 'laptop', 'microondas'];
+  const SUGERENCIAS = ['freidora de aire', 'pantalla 55', 'iphone 16', 'refrigeradora', 'café', 'aceite', 'taladro', 'audífonos'];
 
   function vistaInicio() {
     const ini = S.inicio;
@@ -185,7 +191,7 @@
     return `
       <section class="hero">
         <h1>Compará precios reales y <em>ahorrá de verdad</em><span class="brillo" aria-hidden="true">✦</span></h1>
-        <p>Buscamos en vivo en las tiendas de Costa Rica, guardamos el historial de cada precio y te avisamos cuando un descuento no es real.</p>
+        <p>${S.inicio ? `Comparamos <b>${tiendasActivas().length} tiendas</b> de Costa Rica` : 'Comparamos las tiendas de Costa Rica'} en tecnología, hogar${tiendasActivas().some((t) => t.rubro === 'Supermercado') ? ', supermercado' : ''}${tiendasActivas().some((t) => /Ferret/.test(t.rubro)) ? ' y ferretería' : ''}. Guardamos el historial de cada precio y te avisamos cuando un descuento no es real.</p>
         <form class="buscador" id="form-hero" role="search">
           ${I.lupa}
           <label class="sr-only" for="q-hero">¿Qué querés comparar?</label>
@@ -211,11 +217,11 @@
   function estadoTiendasInicio() {
     if (S.errorInicio) return `<p class="aviso">No pudimos conectar con el buscador: ${esc(S.errorInicio.message)}</p>`;
     if (!S.inicio) return '<div class="tiendas-estado"><span class="t-chip apagada">Revisando tiendas…</span></div>';
-    const ts = S.inicio.tiendas;
-    const activas = ts.filter((t) => ['vtex', 'shopify', 'sitemap'].includes(t.plataforma) && !['bloqueado', 'error', 'no_disponible'].includes(t.estado));
-    return `<div class="tiendas-estado" aria-label="Tiendas">
-      ${ts.map((t) => `<span class="t-chip ${activas.includes(t) ? '' : 'apagada'}" title="${esc(t.detalle || '')}"><i class="dot ${esc(t.estado || (activas.includes(t) ? 'ok' : 'pendiente'))}"></i>${esc(t.nombre)}</span>`).join('')}
-      <button type="button" class="limpiar" data-action="panel" data-p="tiendas">Ver estado de las tiendas</button>
+    const act = tiendasActivas();
+    const otras = S.inicio.tiendas.length - act.length;
+    return `<div class="tiendas-estado" aria-label="Tiendas conectadas">
+      ${act.map((t) => `<span class="t-chip" title="${esc(t.rubro || '')}"><i class="dot ok"></i>${esc(t.nombre)}</span>`).join('')}
+      <button type="button" class="limpiar" data-action="panel" data-p="tiendas">${otras ? `y ${otras} más en evaluación` : 'Ver estado de las tiendas'}</button>
     </div>`;
   }
 
@@ -255,7 +261,7 @@
     const cab = `<section class="res-head">
       <button type="button" class="volver" data-action="inicio" style="padding:0">← Inicio</button>
       <h1>Resultados para <em>${esc(b.q)}</em></h1>
-      ${b.cargando ? `<p>Buscando en ${S.inicio ? plural(S.inicio.tiendas.length, 'tienda', 'tiendas') : 'las tiendas'}… puede tardar unos segundos.</p>` : ''}
+      ${b.cargando ? `<p>Buscando en ${S.inicio ? plural(tiendasActivas().length, 'tienda', 'tiendas') : 'las tiendas'}… puede tardar unos segundos.</p>` : ''}
       ${r ? `<p>${plural(r.grupos.length, 'producto encontrado', 'productos encontrados')} en ${(r.ms / 1000).toFixed(1)} s · tocá una tienda para filtrar</p>${chipsTiendas(r)}` : ''}
     </section>`;
     if (b.cargando) return cab + `<div class="grid">${Array.from({ length: 8 }, () => '<div class="esqueleto" aria-hidden="true"><i></i><i></i><i></i><i></i></div>').join('')}</div>`;
@@ -290,7 +296,8 @@
 
   function chipsTiendas(r) {
     const nombres = { ok: '', sin_resultados: 'sin resultados', pendiente: 'pendiente', bloqueado: 'no permite', error: 'falló', no_disponible: 'no disponible', lento: 'muy lenta' };
-    return `<div class="tiendas-estado">${r.tiendas.map((t) => t.estado === 'ok'
+    const visibles = r.tiendas.filter((t) => ['ok', 'sin_resultados', 'lento'].includes(t.estado));
+    return `<div class="tiendas-estado">${visibles.map((t) => t.estado === 'ok'
       ? `<button type="button" class="t-chip" data-action="tienda-f" data-t="${esc(t.id)}" aria-pressed="${S.f.tiendas.includes(t.id)}"><i class="dot ok"></i>${esc(t.nombre)} <span class="n">${t.n}</span></button>`
       : `<span class="t-chip apagada" title="${esc(t.detalle || '')}"><i class="dot ${esc(t.estado)}"></i>${esc(t.nombre)} <span class="n">${nombres[t.estado] || ''}</span></span>`).join('')}</div>`;
   }
@@ -618,7 +625,7 @@
     const ini = S.inicio;
     if (!ini) return cabeceraPanel('Tiendas', 'Cargando…') + `<div class="panel-vacio">${S.errorInicio ? esc(S.errorInicio.message) : 'Revisando tiendas…'}</div>`;
     const etiquetas = { ok: 'Funcionando', pendiente: 'Pendiente', bloqueado: 'No permite robots', error: 'Con errores', no_disponible: 'Sin datos públicos', sin_resultados: 'Sin productos' };
-    const formas = { vtex: 'Búsqueda en vivo', shopify: 'Catálogo indexado', sitemap: 'Páginas de producto', auto: 'Detectando…', ninguna: '—' };
+    const formas = { vtex: 'Búsqueda en vivo', woocommerce: 'Búsqueda en vivo', shopify: 'Catálogo indexado', sitemap: 'Páginas de producto', auto: 'Detectando…', ninguna: 'Sin datos legibles' };
     const rk = ini.ranking || [];
     const maxG = Math.max(1, ...rk.map((r) => r.gana));
     return cabeceraPanel('Tiendas', `Tipo de cambio: ₡${ini.tipoCambio?.venta ?? '—'} por dólar (${ini.tipoCambio?.fuente || ''})`) + `
@@ -633,13 +640,21 @@
         </div>`).join('')}</div>
       <p class="nota">Con productos que venden 2 o más tiendas (mismo código de barras o modelo), según los precios de los últimos 7 días.</p>`
       : '<div class="panel-vacio"><b>Ranking en construcción</b><p>Se arma con los productos que aparecen en 2 o más tiendas a medida que la gente busca.</p></div>'}
-      <div class="sec-head" style="margin:0"><h2 style="font-size:20px">Estado de <em>cada tienda</em></h2></div>
-      <div class="estado-tiendas-lista">${ini.tiendas.map((t) => `
-        <div class="item">
-          <h3><span class="dot ${esc(t.estado || 'pendiente')}" style="display:inline-block;margin-right:8px"></span>${esc(t.nombre)}</h3>
-          <p>${esc(formas[t.plataforma] || t.plataforma || '')}${t.detalle ? ' · ' + esc(t.detalle) : ''}${t.revisado ? ` · revisada ${hace(t.revisado)}` : ''}</p>
-          <div class="der"><span class="badge ${t.estado === 'ok' ? 'b-bueno' : ['bloqueado', 'error', 'no_disponible'].includes(t.estado) ? 'b-falsa' : 'b-normal'}">${esc(etiquetas[t.estado] || 'Sin revisar')}</span></div>
-        </div>`).join('')}</div>
+      ${(() => {
+        const act = ini.tiendas.filter(activa), resto = ini.tiendas.filter((t) => !activa(t));
+        const rubros = [...new Set(act.map((t) => t.rubro || 'Otras'))];
+        const fila = (t) => `
+          <div class="item">
+            <h3><span class="dot ${esc(activa(t) ? 'ok' : (t.estado || 'pendiente'))}" style="display:inline-block;margin-right:8px"></span>${esc(t.nombre)}</h3>
+            <p>${esc(t.detalle || formas[t.plataforma] || t.plataforma || '')}${t.revisado ? ` · revisada ${hace(t.revisado)}` : ''}</p>
+            <div class="der"><span class="badge ${activa(t) ? 'b-bueno' : ['bloqueado', 'error', 'no_disponible'].includes(t.estado) ? 'b-falsa' : 'b-normal'}">${esc(activa(t) ? 'Conectada' : (etiquetas[t.estado] || 'Sin revisar'))}</span></div>
+          </div>`;
+        return `
+          <div class="sec-head" style="margin:0"><h2 style="font-size:20px">${act.length} tiendas <em>conectadas</em></h2></div>
+          ${rubros.map((r) => `<p class="grupo-t" style="margin:4px 0 0">${esc(r)}</p><div class="estado-tiendas-lista">${act.filter((t) => (t.rubro || 'Otras') === r).map(fila).join('')}</div>`).join('')}
+          ${resto.length ? `<div class="sec-head" style="margin:8px 0 0"><h2 style="font-size:20px">En <em>evaluación</em></h2><p>Tiendas que probamos solas. Aparecen en la página cuando funcionan.</p></div>
+          <div class="estado-tiendas-lista">${resto.map(fila).join('')}</div>` : ''}`;
+      })()}
       <p class="nota">Solo leemos lo que cada tienda permite a los robots en su archivo robots.txt. Para revisar todas de nuevo, abrí <a class="lnk" href="${esc(CFG.api)}/diagnostico" target="_blank" rel="noopener">el diagnóstico</a>.</p>`;
   }
 
